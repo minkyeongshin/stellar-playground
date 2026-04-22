@@ -278,6 +278,7 @@ export default function Home() {
   const newCommentInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const isUrlCommittedRef = useRef(false);
 
   // Load comments for a specific URL from localStorage
   const loadCommentsForUrl = useCallback((url: string): Comment[] => {
@@ -431,6 +432,7 @@ export default function Home() {
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      isUrlCommittedRef.current = true;
       navigateToUrl(urlInput);
       urlInputRef.current?.blur();
     } else if (e.key === "Escape") {
@@ -445,6 +447,11 @@ export default function Home() {
   // Handle URL input blur (revert to currentUrl if not committed)
   const handleUrlBlur = () => {
     setIsUrlFocused(false);
+    // Skip revert if we just committed via Enter
+    if (isUrlCommittedRef.current) {
+      isUrlCommittedRef.current = false;
+      return;
+    }
     setUrlInput(getDisplayUrl(currentUrl));
   };
 
