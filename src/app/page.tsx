@@ -80,6 +80,32 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// Utility: Update browser URL with query parameter
+function updateBrowserUrl(viewingUrl: string | null) {
+  const url = new URL(window.location.href);
+  if (viewingUrl) {
+    url.searchParams.set("url", encodeURIComponent(viewingUrl));
+  } else {
+    url.searchParams.delete("url");
+  }
+  window.history.replaceState({}, "", url.toString());
+}
+
+// Utility: Get URL from query parameter
+function getUrlFromQueryParam(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const urlParam = params.get("url");
+  if (urlParam) {
+    try {
+      return decodeURIComponent(urlParam);
+    } catch {
+      return urlParam;
+    }
+  }
+  return null;
+}
+
 // Comment Pin Component
 function CommentPin({
   comment,
@@ -300,13 +326,26 @@ export default function Home() {
     localStorage.setItem(key, JSON.stringify(commentsToSave));
   }, []);
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount (prioritize URL query param)
   useEffect(() => {
-    // Load saved URL
-    const savedUrl = localStorage.getItem(URL_KEY);
-    const initialUrl = savedUrl || DEFAULT_URL;
+    // Check for URL in query parameter first
+    const queryUrl = getUrlFromQueryParam();
+    let initialUrl: string;
+
+    if (queryUrl) {
+      // Use query param URL (normalize it)
+      initialUrl = normalizeUrl(queryUrl);
+    } else {
+      // Fall back to localStorage or default
+      const savedUrl = localStorage.getItem(URL_KEY);
+      initialUrl = savedUrl || DEFAULT_URL;
+    }
+
     setCurrentUrl(initialUrl);
     setUrlInput(getDisplayUrl(initialUrl));
+
+    // Update browser URL to reflect the current viewing URL
+    updateBrowserUrl(getDisplayUrl(initialUrl));
 
     // Load comments for the initial URL
     const savedComments = loadCommentsForUrl(initialUrl);
@@ -426,6 +465,9 @@ export default function Home() {
     setComments(newComments);
     setIframeError(false);
     setNewCommentPos(null);
+
+    // Update browser URL with query parameter
+    updateBrowserUrl(getDisplayUrl(normalizedUrl));
   }, [currentUrl, comments, isHydrated, loadCommentsForUrl, saveCommentsForUrl]);
 
   // Handle URL input key events
@@ -575,6 +617,8 @@ export default function Home() {
                 onMouseDown={(e) => {
                   e.preventDefault();
                   setUrlInput("");
+                  // Clear the query parameter when URL is cleared
+                  updateBrowserUrl(null);
                 }}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
               >
