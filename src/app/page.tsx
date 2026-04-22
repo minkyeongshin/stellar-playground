@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
@@ -11,15 +11,30 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  Timestamp,
+} from "firebase/firestore";
 
 // Types
 interface Comment {
   id: string;
+  url: string;
   x: number;
   y: number;
   text: string;
   author: string;
   createdAt: string;
+  resolved: boolean;
 }
 
 type Mode = "browse" | "comment";
@@ -36,12 +51,6 @@ function getHostname(url: string): string {
   } catch {
     return url;
   }
-}
-
-// Utility: Get storage key for comments based on hostname
-function getCommentsStorageKey(url: string): string {
-  const hostname = getHostname(url);
-  return `stellar-quick-comments:${hostname}`;
 }
 
 // Utility: Display URL without protocol
@@ -73,11 +82,6 @@ function formatRelativeTime(isoString: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHour < 24) return `${diffHour}h ago`;
   return `${diffDay}d ago`;
-}
-
-// Utility: Generate unique ID
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 // Utility: Update browser URL with query parameter
@@ -293,6 +297,7 @@ export default function Home() {
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  const [isLoadingComments, setIsLoadingComments] = useState(true);
 
   // Sidebar is open when in comment mode OR a pin is selected
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
@@ -306,27 +311,14 @@ export default function Home() {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const isUrlCommittedRef = useRef(false);
 
-  // Load comments for a specific URL from localStorage
-  const loadCommentsForUrl = useCallback((url: string): Comment[] => {
-    const key = getCommentsStorageKey(url);
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return [];
-      }
+  // Disable browser's automatic scroll restoration
+  useEffect(() => {
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
     }
-    return [];
   }, []);
 
-  // Save comments for a specific URL to localStorage
-  const saveCommentsForUrl = useCallback((url: string, commentsToSave: Comment[]) => {
-    const key = getCommentsStorageKey(url);
-    localStorage.setItem(key, JSON.stringify(commentsToSave));
-  }, []);
-
-  // Load from localStorage on mount (prioritize URL query param)
+  // Load initial state on mount (prioritize URL query param)
   useEffect(() => {
     // Check for URL in query parameter first
     const queryUrl = getUrlFromQueryParam();
@@ -347,10 +339,6 @@ export default function Home() {
     // Update browser URL to reflect the current viewing URL
     updateBrowserUrl(getDisplayUrl(initialUrl));
 
-    // Load comments for the initial URL
-    const savedComments = loadCommentsForUrl(initialUrl);
-    setComments(savedComments);
-
     // Load author name (global)
     const savedAuthor = localStorage.getItem(AUTHOR_KEY);
     if (savedAuthor) {
@@ -358,14 +346,57 @@ export default function Home() {
     }
 
     setIsHydrated(true);
-  }, [loadCommentsForUrl]);
+  }, []);
 
-  // Save comments to localStorage when they change
+  // Subscribe to Firestore comments for the current URL (realtime)
   useEffect(() => {
-    if (isHydrated) {
-      saveCommentsForUrl(currentUrl, comments);
-    }
-  }, [comments, currentUrl, isHydrated, saveCommentsForUrl]);
+    if (!isHydrated) return;
+
+    const hostname = getHostname(currentUrl);
+    setIsLoadingComments(true);
+
+    // Query comments where url matches current hostname
+    const commentsQuery = query(
+      collection(db, "comments"),
+      where("url", "==", hostname)
+    );
+
+    // Subscribe to realtime updates
+    const unsubscribe = onSnapshot(
+      commentsQuery,
+      (snapshot) => {
+        const newComments: Comment[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            url: data.url,
+            x: data.x,
+            y: data.y,
+            text: data.text,
+            author: data.author,
+            createdAt: data.createdAt instanceof Timestamp
+              ? data.createdAt.toDate().toISOString()
+              : data.createdAt || new Date().toISOString(),
+            resolved: data.resolved || false,
+          };
+        });
+        setComments(newComments);
+        setIsLoadingComments(false);
+      },
+      (error) => {
+        console.error("Error fetching comments:", error);
+        setIsLoadingComments(false);
+      }
+    );
+
+    // Cleanup subscription on unmount or URL change
+    return () => unsubscribe();
+  }, [isHydrated, currentUrl]);
+
+  // Scroll to top when URL changes
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [currentUrl]);
 
   // Save current URL to localStorage
   useEffect(() => {
@@ -443,7 +474,7 @@ export default function Home() {
   }, [mode]);
 
   // Navigate to a new URL
-  const navigateToUrl = useCallback((newUrl: string) => {
+  const navigateToUrl = (newUrl: string) => {
     const normalizedUrl = normalizeUrl(newUrl);
 
     if (normalizedUrl === currentUrl) {
@@ -451,24 +482,16 @@ export default function Home() {
       return;
     }
 
-    // Save current comments before switching
-    if (isHydrated) {
-      saveCommentsForUrl(currentUrl, comments);
-    }
-
-    // Load comments for new URL
-    const newComments = loadCommentsForUrl(normalizedUrl);
-
-    // Update state
+    // Update state - Firestore subscription will handle loading comments
     setCurrentUrl(normalizedUrl);
     setUrlInput(getDisplayUrl(normalizedUrl));
-    setComments(newComments);
     setIframeError(false);
     setNewCommentPos(null);
+    setSelectedPinId(null);
 
     // Update browser URL with query parameter
     updateBrowserUrl(getDisplayUrl(normalizedUrl));
-  }, [currentUrl, comments, isHydrated, loadCommentsForUrl, saveCommentsForUrl]);
+  };
 
   // Handle URL input key events
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -530,7 +553,7 @@ export default function Home() {
   };
 
   // Post new comment
-  const handlePostComment = () => {
+  const handlePostComment = async () => {
     if (!newCommentPos || !newCommentText.trim()) return;
 
     // Validate name before posting
@@ -539,18 +562,23 @@ export default function Home() {
       return;
     }
 
-    const newComment: Comment = {
-      id: generateId(),
-      x: newCommentPos.x,
-      y: newCommentPos.y,
-      text: newCommentText.trim(),
-      author: authorName.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    setComments((prev) => [...prev, newComment]);
-    setNewCommentPos(null);
-    setNewCommentText("");
+    try {
+      const hostname = getHostname(currentUrl);
+      await addDoc(collection(db, "comments"), {
+        url: hostname,
+        x: newCommentPos.x,
+        y: newCommentPos.y,
+        text: newCommentText.trim(),
+        author: authorName.trim(),
+        createdAt: serverTimestamp(),
+        resolved: false,
+      });
+      // The onSnapshot listener will automatically update the UI
+      setNewCommentPos(null);
+      setNewCommentText("");
+    } catch (error) {
+      console.error("Error adding comment:", error);
+    }
   };
 
   // Cancel new comment
@@ -560,15 +588,23 @@ export default function Home() {
   };
 
   // Edit comment
-  const handleEditComment = (id: string, text: string) => {
-    setComments((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, text } : c))
-    );
+  const handleEditComment = async (id: string, text: string) => {
+    try {
+      await updateDoc(doc(db, "comments", id), { text });
+      // The onSnapshot listener will automatically update the UI
+    } catch (error) {
+      console.error("Error editing comment:", error);
+    }
   };
 
   // Delete comment
-  const handleDeleteComment = (id: string) => {
-    setComments((prev) => prev.filter((c) => c.id !== id));
+  const handleDeleteComment = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "comments", id));
+      // The onSnapshot listener will automatically update the UI
+    } catch (error) {
+      console.error("Error deleting comment:", error);
+    }
   };
 
   return (
@@ -708,6 +744,7 @@ export default function Home() {
             </div>
           ) : (
             <iframe
+              key={currentUrl}
               src={currentUrl}
               className="w-full border-0"
               style={{ height: "5000px" }}
@@ -854,7 +891,13 @@ export default function Home() {
 
               {/* Sidebar Content */}
               <div className="flex-1 overflow-y-auto">
-                {comments.length === 0 ? (
+                {isLoadingComments ? (
+                  <div className="flex h-full items-center justify-center p-4">
+                    <p className="text-center text-sm text-slate-500">
+                      Loading comments...
+                    </p>
+                  </div>
+                ) : comments.length === 0 ? (
                   <div className="flex h-full items-center justify-center p-4">
                     <p className="text-center text-sm text-slate-500">
                       No comments yet.
