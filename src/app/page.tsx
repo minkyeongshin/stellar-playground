@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -83,19 +84,28 @@ function generateId(): string {
 function CommentPin({
   comment,
   isSelected,
+  isHighlighted,
+  isSidebarOpen,
   onSelect,
+  onHover,
   onEdit,
   onDelete,
 }: {
   comment: Comment;
   isSelected: boolean;
+  isHighlighted: boolean;
+  isSidebarOpen: boolean;
   onSelect: (id: string | null) => void;
+  onHover: (id: string | null) => void;
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const [isHovered, setIsHovered] = useState(false);
+  const [isLocalHover, setIsLocalHover] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
+
+  // Show hover tooltip only when sidebar is closed
+  const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen;
 
   const handleSaveEdit = () => {
     if (editText.trim()) {
@@ -121,8 +131,14 @@ function CommentPin({
         top: `${comment.y}%`,
         transform: "translate(-50%, -50%)",
       }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => {
+        setIsLocalHover(true);
+        onHover(comment.id);
+      }}
+      onMouseLeave={() => {
+        setIsLocalHover(false);
+        onHover(null);
+      }}
     >
       <Popover open={isSelected} onOpenChange={handlePopoverChange}>
         <PopoverTrigger
@@ -130,10 +146,12 @@ function CommentPin({
             "flex h-6 w-6 items-center justify-center rounded-full bg-purple-600 text-xs shadow-lg transition-all duration-200",
             isSelected
               ? "scale-125 shadow-purple-400/70 ring-4 ring-purple-400/50"
-              : "shadow-purple-500/50 hover:scale-110"
+              : isHighlighted
+                ? "scale-110 shadow-purple-400/60 ring-2 ring-purple-400/40"
+                : "shadow-purple-500/50 hover:scale-110"
           )}
           style={{
-            animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+            animation: isHighlighted ? "none" : "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
           }}
         >
           💬
@@ -208,18 +226,24 @@ function CommentPin({
         </PopoverContent>
       </Popover>
 
-      {/* Hover Tooltip */}
-      {isHovered && !isSelected && (
+      {/* Hover Tooltip - only shown when sidebar is closed */}
+      {showHoverTooltip && (
         <div
-          className="pointer-events-none absolute left-1/2 bottom-full mb-2 z-50"
+          className="pointer-events-none absolute left-1/2 bottom-full mb-3 z-50"
           style={{ transform: "translateX(-50%)" }}
         >
-          <div className="max-w-xs rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white backdrop-blur-md shadow-lg">
-            <p className="text-sm">{comment.text}</p>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
-              <span>{comment.author}</span>
+          <div className="relative min-w-[260px] max-w-[340px] rounded-xl border border-white/10 bg-slate-900 p-4 shadow-2xl">
+            <p className="text-sm leading-relaxed text-white whitespace-pre-wrap">
+              {comment.text}
+            </p>
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
+              <span className="font-medium text-slate-400">{comment.author}</span>
               <span>·</span>
               <span>{formatRelativeTime(comment.createdAt)}</span>
+            </div>
+            {/* Arrow pointing down to pin */}
+            <div className="absolute left-1/2 -bottom-2 -translate-x-1/2">
+              <div className="h-3 w-3 rotate-45 border-b border-r border-white/10 bg-slate-900" />
             </div>
           </div>
         </div>
@@ -235,13 +259,14 @@ export default function Home() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [mode, setMode] = useState<Mode>("browse");
   const [authorName, setAuthorName] = useState("");
-  const [nameError, setNameError] = useState(false);
   const [newCommentPos, setNewCommentPos] = useState<{ x: number; y: number } | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [isHydrated, setIsHydrated] = useState(false);
   const [iframeError, setIframeError] = useState(false);
   const [isUrlFocused, setIsUrlFocused] = useState(false);
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
   // Sidebar is open when in comment mode OR a pin is selected
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
@@ -252,7 +277,7 @@ export default function Home() {
   const containerRef = useRef<HTMLDivElement>(null);
   const newCommentInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
-  const authorNameRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Load comments for a specific URL from localStorage
   const loadCommentsForUrl = useCallback((url: string): Comment[] => {
@@ -323,23 +348,59 @@ export default function Home() {
     }
   }, [newCommentPos]);
 
-  // Clear name error when name becomes valid
-  useEffect(() => {
-    if (isNameValid && nameError) {
-      setNameError(false);
-    }
-  }, [isNameValid, nameError]);
-
-  // Handle Escape key to clear pin selection
+  // Handle Escape key to clear pin selection and close sidebar
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && selectedPinId !== null) {
+      if (e.key !== "Escape") return;
+
+      // Don't handle if focused on input, textarea, or contenteditable
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Clear pin selection first, then close sidebar
+      if (selectedPinId !== null) {
         setSelectedPinId(null);
+      } else if (mode === "comment") {
+        setMode("browse");
+        setNewCommentPos(null);
       }
     };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [selectedPinId]);
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [selectedPinId, mode]);
+
+  // Handle "C" key to toggle comment mode
+  useEffect(() => {
+    const handleToggleComment = (e: KeyboardEvent) => {
+      // Ignore if typing in an input, textarea, or contenteditable
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key === "c" || e.key === "C") {
+        if (mode === "comment") {
+          setMode("browse");
+          setNewCommentPos(null);
+        } else {
+          setMode("comment");
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleToggleComment);
+    return () => window.removeEventListener("keydown", handleToggleComment);
+  }, [mode]);
 
   // Navigate to a new URL
   const navigateToUrl = useCallback((newUrl: string) => {
@@ -373,15 +434,23 @@ export default function Home() {
       navigateToUrl(urlInput);
       urlInputRef.current?.blur();
     } else if (e.key === "Escape") {
-      setUrlInput(getDisplayUrl(currentUrl));
+      const displayUrl = getDisplayUrl(currentUrl);
+      if (urlInput !== displayUrl) {
+        setUrlInput(displayUrl);
+      }
       urlInputRef.current?.blur();
     }
   };
 
-  // Handle URL input blur (revert without Enter)
+  // Handle URL input blur (revert to currentUrl if not committed)
   const handleUrlBlur = () => {
     setIsUrlFocused(false);
     setUrlInput(getDisplayUrl(currentUrl));
+  };
+
+  // Focus name input when validation fails
+  const focusNameInput = () => {
+    nameInputRef.current?.focus();
   };
 
   // Handle overlay click
@@ -393,6 +462,12 @@ export default function Home() {
 
     // In comment mode, also create new comment position
     if (mode === "comment") {
+      // Validate name before placing a pin
+      if (!isNameValid) {
+        focusNameInput();
+        return;
+      }
+
       const container = containerRef.current;
       if (!container) return;
 
@@ -411,8 +486,7 @@ export default function Home() {
 
     // Validate name before posting
     if (!isNameValid) {
-      setNameError(true);
-      authorNameRef.current?.focus();
+      focusNameInput();
       return;
     }
 
@@ -452,87 +526,100 @@ export default function Home() {
     <div className="min-h-full">
       {/* Header - Sticky */}
       <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
-        {/* Logo */}
-        <Image
-          src="https://design-system.stellar.org/img/stellar.svg"
-          alt="Stellar"
-          width={100}
-          height={26}
-          className="h-[26px] w-auto invert brightness-0"
-          priority
-        />
+        {/* Logo + Badge */}
+        <div className="flex items-center gap-2">
+          <Image
+            src="https://design-system.stellar.org/img/stellar.svg"
+            alt="Stellar"
+            width={100}
+            height={26}
+            className="h-[26px] w-auto invert brightness-0"
+            priority
+          />
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">
+            Quick View
+          </span>
+        </div>
 
         {/* Editable URL Input */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-400">Viewing:</span>
-          <input
-            ref={urlInputRef}
-            type="text"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={handleUrlKeyDown}
-            onFocus={() => setIsUrlFocused(true)}
-            onBlur={handleUrlBlur}
-            className={cn(
-              "bg-transparent text-sm text-slate-300 outline-none transition-all",
-              "min-w-[200px] max-w-[400px] px-2 py-1 rounded",
-              isUrlFocused
-                ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
-                : "border border-transparent hover:bg-white/5"
+          <div className="relative">
+            <input
+              ref={urlInputRef}
+              type="text"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={handleUrlKeyDown}
+              onFocus={() => setIsUrlFocused(true)}
+              onBlur={handleUrlBlur}
+              className={cn(
+                "bg-transparent text-sm text-slate-300 outline-none transition-all",
+                "min-w-[200px] max-w-[400px] py-1 pl-2 pr-7 rounded",
+                isUrlFocused
+                  ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
+                  : "border border-transparent hover:bg-white/5"
+              )}
+              placeholder="Enter URL..."
+            />
+            {urlInput && (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setUrlInput("");
+                }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             )}
-            placeholder="Enter URL..."
-          />
+          </div>
         </div>
 
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Author Input */}
-        <div className="flex items-center gap-2">
-          <label htmlFor="author-name" className="text-sm text-slate-400">
-            Name:
-          </label>
-          <Input
-            ref={authorNameRef}
-            id="author-name"
+        {/* Comment as [name input] */}
+        <div className="flex items-center gap-2 text-sm text-slate-400">
+          <span>Comment as</span>
+          <input
+            ref={nameInputRef}
+            type="text"
             value={authorName}
             onChange={(e) => setAuthorName(e.target.value)}
-            className={cn(
-              "h-7 w-40 px-2 text-sm text-white placeholder:text-slate-500",
-              nameError
-                ? "border-red-500 bg-red-500/5 focus-visible:border-red-500 focus-visible:ring-red-500/30"
-                : "border-white/20 bg-white/10 focus-visible:border-purple-500 focus-visible:ring-purple-500/30"
-            )}
-            placeholder="Enter your name"
+            className="w-32 rounded border border-white/20 bg-white/5 px-2 py-1 text-sm text-white outline-none transition-all placeholder:text-slate-500 focus:border-purple-500/50 focus:bg-white/10"
+            placeholder="Your name"
           />
         </div>
 
-        {/* Comment Mode Toggle */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            if (mode === "comment") {
-              setMode("browse");
-            } else {
-              // Validate name before entering comment mode
-              if (!isNameValid) {
-                setNameError(true);
-                authorNameRef.current?.focus();
-                return;
+        {/* Comment Toggle Button */}
+        <div className="relative flex items-center">
+          <button
+            type="button"
+            onClick={() => {
+              if (mode === "comment") {
+                setMode("browse");
+                setNewCommentPos(null);
+              } else {
+                setMode("comment");
               }
-              setMode("comment");
-            }
-          }}
-          className={cn(
-            "text-sm transition-all",
-            mode === "comment"
-              ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30 hover:bg-purple-600 hover:text-white"
-              : "text-slate-400 hover:bg-slate-700 hover:text-white"
+            }}
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-full border text-sm transition-all",
+              mode === "comment"
+                ? "border-purple-500 bg-purple-600/20 text-purple-300"
+                : "border-white/30 bg-transparent text-slate-400 hover:border-white/50 hover:bg-white/10 hover:text-white"
+            )}
+          >
+            💬
+          </button>
+          {comments.length > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-purple-600 px-1 text-[10px] font-medium text-white">
+              {comments.length}
+            </span>
           )}
-        >
-          💬 Comment{comments.length > 0 ? ` (${comments.length})` : ""}
-        </Button>
+        </div>
       </header>
 
       {/* Main Content Area with Sidebar */}
@@ -590,7 +677,40 @@ export default function Home() {
                   : "pointer-events-none"
             )}
             onClick={handleOverlayClick}
+            onMouseMove={(e) => {
+              if (mode === "comment" && !newCommentPos) {
+                setCursorPos({ x: e.clientX, y: e.clientY });
+              }
+            }}
+            onMouseLeave={() => setCursorPos(null)}
           />
+
+          {/* Cursor-following tooltip in comment mode */}
+          {mode === "comment" && !newCommentPos && cursorPos && (
+            !isNameValid ? (
+              <div
+                className="pointer-events-none fixed z-[100]"
+                style={{
+                  left: cursorPos.x + 16,
+                  top: cursorPos.y + 16,
+                }}
+              >
+                <div className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+                  Enter your name first
+                </div>
+              </div>
+            ) : (
+              <div
+                className="pointer-events-none fixed z-[100]"
+                style={{
+                  left: cursorPos.x + 6,
+                  top: cursorPos.y + 6,
+                }}
+              >
+                <span className="text-xl">💬</span>
+              </div>
+            )
+          )}
 
           {/* Existing Comment Pins */}
           {comments.map((comment) => (
@@ -598,7 +718,10 @@ export default function Home() {
               key={comment.id}
               comment={comment}
               isSelected={selectedPinId === comment.id}
+              isHighlighted={hoveredPinId === comment.id}
+              isSidebarOpen={isSidebarOpen}
               onSelect={setSelectedPinId}
+              onHover={setHoveredPinId}
               onEdit={handleEditComment}
               onDelete={handleDeleteComment}
             />
@@ -670,6 +793,7 @@ export default function Home() {
                   onClick={() => {
                     setMode("browse");
                     setSelectedPinId(null);
+                    setNewCommentPos(null);
                   }}
                   className="text-slate-400 hover:text-white transition-colors"
                 >
@@ -695,11 +819,15 @@ export default function Home() {
                         <div
                           key={comment.id}
                           onClick={() => setSelectedPinId(comment.id)}
+                          onMouseEnter={() => setHoveredPinId(comment.id)}
+                          onMouseLeave={() => setHoveredPinId(null)}
                           className={cn(
-                            "px-4 py-3 cursor-pointer transition-colors",
+                            "px-4 py-3 cursor-pointer border-l-2 transition-colors duration-150",
                             selectedPinId === comment.id
-                              ? "bg-purple-500/10 border-l-2 border-purple-500"
-                              : "hover:bg-white/10 border-l-2 border-transparent"
+                              ? "bg-purple-500/15 border-purple-500"
+                              : hoveredPinId === comment.id
+                                ? "bg-purple-500/15 border-purple-400"
+                                : "hover:bg-white/5 border-transparent"
                           )}
                         >
                           <p className="text-sm text-white font-medium leading-relaxed">
