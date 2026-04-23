@@ -35,6 +35,7 @@ interface Comment {
   author: string;
   createdAt: string;
   resolved: boolean;
+  containerWidth?: number; // Width of container when pin was placed (for position anchoring)
 }
 
 type Mode = "browse" | "comment";
@@ -116,6 +117,7 @@ function CommentPin({
   isSelected,
   isHighlighted,
   isSidebarOpen,
+  currentContainerWidth,
   onSelect,
   onHover,
   onEdit,
@@ -125,11 +127,18 @@ function CommentPin({
   isSelected: boolean;
   isHighlighted: boolean;
   isSidebarOpen: boolean;
+  currentContainerWidth: number;
   onSelect: (id: string | null) => void;
   onHover: (id: string | null) => void;
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
 }) {
+  // Calculate adjusted x position to keep pin anchored when container resizes
+  // If comment has stored containerWidth, use it to calculate the absolute pixel position
+  // then convert to percentage of current container width
+  const adjustedX = comment.containerWidth && currentContainerWidth > 0
+    ? (comment.x * comment.containerWidth / currentContainerWidth)
+    : comment.x;
   const [isLocalHover, setIsLocalHover] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
@@ -157,7 +166,7 @@ function CommentPin({
     <div
       className="pointer-events-auto absolute z-10"
       style={{
-        left: `${comment.x}%`,
+        left: `${adjustedX}%`,
         top: `${comment.y}%`,
         transform: "translate(-50%, -50%)",
       }}
@@ -298,9 +307,14 @@ export default function Home() {
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
 
   // Sidebar is open when in comment mode OR a pin is selected
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
+
+  // Reference width for pin positioning (sidebar-open width as baseline)
+  // This ensures pins stay anchored when sidebar toggles
+  const SIDEBAR_WIDTH = 320;
 
   // Check if name is valid (non-empty, non-whitespace)
   const isNameValid = authorName.trim().length > 0;
@@ -316,6 +330,25 @@ export default function Home() {
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
     }
+  }, []);
+
+  // Track container width for pin positioning
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateWidth = () => {
+      setContainerWidth(container.offsetWidth);
+    };
+
+    // Initial measurement
+    updateWidth();
+
+    // Track resize
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(container);
+
+    return () => resizeObserver.disconnect();
   }, []);
 
   // Load initial state on mount (prioritize URL query param)
@@ -378,6 +411,7 @@ export default function Home() {
               ? data.createdAt.toDate().toISOString()
               : data.createdAt || new Date().toISOString(),
             resolved: data.resolved || false,
+            containerWidth: data.containerWidth,
           };
         });
         setComments(newComments);
@@ -572,6 +606,7 @@ export default function Home() {
         author: authorName.trim(),
         createdAt: serverTimestamp(),
         resolved: false,
+        containerWidth: containerWidth,
       });
       // The onSnapshot listener will automatically update the UI
       setNewCommentPos(null);
@@ -713,7 +748,11 @@ export default function Home() {
       <div className="flex">
         {/* Iframe Container - scrolls with page */}
         <div
-          className="relative w-full"
+          className={cn(
+            "relative transition-all duration-300",
+            isSidebarOpen ? "mr-80" : "mr-0"
+          )}
+          style={{ width: isSidebarOpen ? "calc(100% - 320px)" : "100%" }}
           ref={containerRef}
         >
           {/* Iframe or Fallback */}
@@ -804,6 +843,7 @@ export default function Home() {
               isSelected={selectedPinId === comment.id}
               isHighlighted={hoveredPinId === comment.id}
               isSidebarOpen={isSidebarOpen}
+              currentContainerWidth={containerWidth}
               onSelect={setSelectedPinId}
               onHover={setHoveredPinId}
               onEdit={handleEditComment}
