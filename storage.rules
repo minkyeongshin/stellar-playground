@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /images/{imageId} {
+      // Allow read access to anyone
+      allow read: if true;
+
+      // Allow write access with constraints:
+      // - Max file size: 10MB
+      // - Allowed MIME types: image/png, image/jpeg, image/webp, image/gif
+      allow write: if request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(png|jpeg|webp|gif)');
+    }
+  }
+}

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
+import { X, Upload, Globe, ImageIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -11,7 +11,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import {
   collection,
   query,
@@ -21,29 +21,49 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  getDoc,
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore";
+import {
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
+} from "firebase/storage";
 
 // Types
 interface Comment {
   id: string;
-  url: string;
+  targetType: "url" | "image";
+  targetId: string; // hostname for URLs, imageId for images
   x: number;
   y: number;
   text: string;
   author: string;
   createdAt: string;
   resolved: boolean;
-  containerWidth?: number; // Width of container when pin was placed (for position anchoring)
+  containerWidth?: number;
+}
+
+interface ImageDoc {
+  id: string;
+  storageUrl: string;
+  fileName: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  width: number;
+  height: number;
 }
 
 type Mode = "browse" | "comment";
+type ViewMode = "landing" | "url" | "image";
 
 // Constants
 const AUTHOR_KEY = "stellar-author-name";
 const URL_KEY = "stellar-current-url";
 const DEFAULT_URL = "https://stellarskills-git-main-minkyeongshins-projects.vercel.app";
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 // Utility: Get hostname from URL
 function getHostname(url: string): string {
@@ -86,14 +106,26 @@ function formatRelativeTime(isoString: string): string {
 }
 
 // Utility: Update browser URL with query parameter
-function updateBrowserUrl(viewingUrl: string | null) {
-  const url = new URL(window.location.href);
-  if (viewingUrl) {
-    url.searchParams.set("url", encodeURIComponent(viewingUrl));
-  } else {
-    url.searchParams.delete("url");
+function updateBrowserUrl(params: { url?: string | null; image?: string | null }) {
+  const browserUrl = new URL(window.location.href);
+
+  if (params.url !== undefined) {
+    if (params.url) {
+      browserUrl.searchParams.set("url", encodeURIComponent(params.url));
+    } else {
+      browserUrl.searchParams.delete("url");
+    }
   }
-  window.history.replaceState({}, "", url.toString());
+
+  if (params.image !== undefined) {
+    if (params.image) {
+      browserUrl.searchParams.set("image", params.image);
+    } else {
+      browserUrl.searchParams.delete("image");
+    }
+  }
+
+  window.history.replaceState({}, "", browserUrl.toString());
 }
 
 // Utility: Get URL from query parameter
@@ -109,6 +141,18 @@ function getUrlFromQueryParam(): string | null {
     }
   }
   return null;
+}
+
+// Utility: Get image ID from query parameter
+function getImageFromQueryParam(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("image");
+}
+
+// Utility: Generate unique ID
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 // Comment Pin Component
@@ -134,8 +178,6 @@ function CommentPin({
   onDelete: (id: string) => void;
 }) {
   // Calculate adjusted x position to keep pin anchored when container resizes
-  // If comment has stored containerWidth, use it to calculate the absolute pixel position
-  // then convert to percentage of current container width
   const adjustedX = comment.containerWidth && currentContainerWidth > 0
     ? (comment.x * comment.containerWidth / currentContainerWidth)
     : comment.x;
@@ -143,7 +185,6 @@ function CommentPin({
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
 
-  // Show hover tooltip only when sidebar is closed
   const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen;
 
   const handleSaveEdit = () => {
@@ -265,7 +306,6 @@ function CommentPin({
         </PopoverContent>
       </Popover>
 
-      {/* Hover Tooltip - only shown when sidebar is closed */}
       {showHoverTooltip && (
         <div
           className="pointer-events-none absolute left-1/2 bottom-full mb-3 z-50"
@@ -280,7 +320,6 @@ function CommentPin({
               <span>·</span>
               <span>{formatRelativeTime(comment.createdAt)}</span>
             </div>
-            {/* Arrow pointing down to pin */}
             <div className="absolute left-1/2 -bottom-2 -translate-x-1/2">
               <div className="h-3 w-3 rotate-45 border-b border-r border-white/10 bg-slate-900" />
             </div>
@@ -292,38 +331,54 @@ function CommentPin({
 }
 
 export default function Home() {
-  // State
+  // View mode state
+  const [viewMode, setViewMode] = useState<ViewMode>("landing");
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // URL mode state
   const [currentUrl, setCurrentUrl] = useState(DEFAULT_URL);
-  const [urlInput, setUrlInput] = useState(getDisplayUrl(DEFAULT_URL));
+  const [urlInput, setUrlInput] = useState("");
+  const [iframeError, setIframeError] = useState(false);
+  const [isUrlFocused, setIsUrlFocused] = useState(false);
+
+  // Image mode state
+  const [currentImageId, setCurrentImageId] = useState<string | null>(null);
+  const [imageDoc, setImageDoc] = useState<ImageDoc | null>(null);
+  const [isLoadingImage, setIsLoadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Shared comment state
   const [comments, setComments] = useState<Comment[]>([]);
   const [mode, setMode] = useState<Mode>("browse");
   const [authorName, setAuthorName] = useState("");
   const [newCommentPos, setNewCommentPos] = useState<{ x: number; y: number } | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
-  const [isHydrated, setIsHydrated] = useState(false);
-  const [iframeError, setIframeError] = useState(false);
-  const [isUrlFocused, setIsUrlFocused] = useState(false);
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
   const [containerWidth, setContainerWidth] = useState<number>(0);
 
-  // Sidebar is open when in comment mode OR a pin is selected
+  // Landing page state
+  const [landingUrlInput, setLandingUrlInput] = useState("");
+
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
-
-  // Reference width for pin positioning (sidebar-open width as baseline)
-  // This ensures pins stay anchored when sidebar toggles
-  const SIDEBAR_WIDTH = 320;
-
-  // Check if name is valid (non-empty, non-whitespace)
   const isNameValid = authorName.trim().length > 0;
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
   const newCommentInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isUrlCommittedRef = useRef(false);
+
+  // Determine current target for comments
+  const currentTargetType: "url" | "image" = viewMode === "image" ? "image" : "url";
+  const currentTargetId = viewMode === "image" ? currentImageId : getHostname(currentUrl);
 
   // Disable browser's automatic scroll restoration
   useEffect(() => {
@@ -334,75 +389,128 @@ export default function Home() {
 
   // Track container width for pin positioning
   useEffect(() => {
-    const container = containerRef.current;
+    const container = viewMode === "image" ? imageContainerRef.current : containerRef.current;
     if (!container) return;
 
     const updateWidth = () => {
       setContainerWidth(container.offsetWidth);
     };
 
-    // Initial measurement
     updateWidth();
 
-    // Track resize
     const resizeObserver = new ResizeObserver(updateWidth);
     resizeObserver.observe(container);
 
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [viewMode, imageDoc]);
 
-  // Load initial state on mount (prioritize URL query param)
+  // Load initial state on mount
   useEffect(() => {
-    // Check for URL in query parameter first
-    const queryUrl = getUrlFromQueryParam();
-    let initialUrl: string;
+    const urlParam = getUrlFromQueryParam();
+    const imageParam = getImageFromQueryParam();
 
-    if (queryUrl) {
-      // Use query param URL (normalize it)
-      initialUrl = normalizeUrl(queryUrl);
-    } else {
-      // Fall back to localStorage or default
-      const savedUrl = localStorage.getItem(URL_KEY);
-      initialUrl = savedUrl || DEFAULT_URL;
-    }
-
-    setCurrentUrl(initialUrl);
-    setUrlInput(getDisplayUrl(initialUrl));
-
-    // Update browser URL to reflect the current viewing URL
-    updateBrowserUrl(getDisplayUrl(initialUrl));
-
-    // Load author name (global)
+    // Load author name
     const savedAuthor = localStorage.getItem(AUTHOR_KEY);
     if (savedAuthor) {
       setAuthorName(savedAuthor);
     }
 
+    if (imageParam) {
+      // Image mode
+      setViewMode("image");
+      setCurrentImageId(imageParam);
+    } else if (urlParam) {
+      // URL mode with query param
+      const normalizedUrl = normalizeUrl(urlParam);
+      setViewMode("url");
+      setCurrentUrl(normalizedUrl);
+      setUrlInput(getDisplayUrl(normalizedUrl));
+      updateBrowserUrl({ url: getDisplayUrl(normalizedUrl) });
+    } else {
+      // Check localStorage for saved URL
+      const savedUrl = localStorage.getItem(URL_KEY);
+      if (savedUrl) {
+        // Show landing page but pre-fill the URL input
+        setLandingUrlInput(getDisplayUrl(savedUrl));
+      }
+      setViewMode("landing");
+    }
+
     setIsHydrated(true);
   }, []);
 
-  // Subscribe to Firestore comments for the current URL (realtime)
+  // Load image document when in image mode
   useEffect(() => {
-    if (!isHydrated) return;
+    if (viewMode !== "image" || !currentImageId || !isHydrated) return;
 
-    const hostname = getHostname(currentUrl);
+    setIsLoadingImage(true);
+    setImageError(null);
+
+    const loadImage = async () => {
+      try {
+        const docRef = doc(db, "images", currentImageId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setImageDoc({
+            id: docSnap.id,
+            storageUrl: data.storageUrl,
+            fileName: data.fileName,
+            uploadedBy: data.uploadedBy,
+            uploadedAt: data.uploadedAt instanceof Timestamp
+              ? data.uploadedAt.toDate().toISOString()
+              : data.uploadedAt,
+            width: data.width,
+            height: data.height,
+          });
+        } else {
+          setImageError("Image not found");
+        }
+      } catch (error) {
+        console.error("Error loading image:", error);
+        setImageError("Failed to load image");
+      } finally {
+        setIsLoadingImage(false);
+      }
+    };
+
+    loadImage();
+  }, [viewMode, currentImageId, isHydrated]);
+
+  // Subscribe to Firestore comments
+  useEffect(() => {
+    if (!isHydrated || viewMode === "landing" || !currentTargetId) return;
+
     setIsLoadingComments(true);
 
-    // Query comments where url matches current hostname
-    const commentsQuery = query(
-      collection(db, "comments"),
-      where("url", "==", hostname)
-    );
+    // Build query based on target type
+    // For backward compatibility: old comments have url field but no targetType
+    let commentsQuery;
+    if (currentTargetType === "url") {
+      // Query by url field (backward compatible)
+      commentsQuery = query(
+        collection(db, "comments"),
+        where("url", "==", currentTargetId)
+      );
+    } else {
+      // Query by targetType and targetId for images
+      commentsQuery = query(
+        collection(db, "comments"),
+        where("targetType", "==", "image"),
+        where("targetId", "==", currentTargetId)
+      );
+    }
 
-    // Subscribe to realtime updates
     const unsubscribe = onSnapshot(
       commentsQuery,
       (snapshot) => {
-        const newComments: Comment[] = snapshot.docs.map((doc) => {
-          const data = doc.data();
+        const newComments: Comment[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
           return {
-            id: doc.id,
-            url: data.url,
+            id: docSnap.id,
+            targetType: data.targetType || "url",
+            targetId: data.targetId || data.url,
             x: data.x,
             y: data.y,
             text: data.text,
@@ -423,23 +531,22 @@ export default function Home() {
       }
     );
 
-    // Cleanup subscription on unmount or URL change
     return () => unsubscribe();
-  }, [isHydrated, currentUrl]);
+  }, [isHydrated, viewMode, currentTargetType, currentTargetId]);
 
-  // Scroll to top when URL changes
+  // Scroll to top when view changes
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [currentUrl]);
+  }, [currentUrl, currentImageId]);
 
   // Save current URL to localStorage
   useEffect(() => {
-    if (isHydrated) {
+    if (isHydrated && viewMode === "url") {
       localStorage.setItem(URL_KEY, currentUrl);
     }
-  }, [currentUrl, isHydrated]);
+  }, [currentUrl, isHydrated, viewMode]);
 
-  // Save author name to localStorage (global)
+  // Save author name to localStorage
   useEffect(() => {
     if (isHydrated) {
       localStorage.setItem(AUTHOR_KEY, authorName);
@@ -453,12 +560,11 @@ export default function Home() {
     }
   }, [newCommentPos]);
 
-  // Handle Escape key to clear pin selection and close sidebar
+  // Handle Escape key
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
 
-      // Don't handle if focused on input, textarea, or contenteditable
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -468,7 +574,6 @@ export default function Home() {
         return;
       }
 
-      // Clear pin selection first, then close sidebar
       if (selectedPinId !== null) {
         setSelectedPinId(null);
       } else if (mode === "comment") {
@@ -482,8 +587,9 @@ export default function Home() {
 
   // Handle "C" key to toggle comment mode
   useEffect(() => {
+    if (viewMode === "landing") return;
+
     const handleToggleComment = (e: KeyboardEvent) => {
-      // Ignore if typing in an input, textarea, or contenteditable
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -505,27 +611,23 @@ export default function Home() {
 
     window.addEventListener("keydown", handleToggleComment);
     return () => window.removeEventListener("keydown", handleToggleComment);
-  }, [mode]);
+  }, [mode, viewMode]);
 
-  // Navigate to a new URL
-  const navigateToUrl = (newUrl: string) => {
+  // Navigate to URL mode
+  const navigateToUrl = useCallback((newUrl: string) => {
     const normalizedUrl = normalizeUrl(newUrl);
 
-    if (normalizedUrl === currentUrl) {
-      setUrlInput(getDisplayUrl(currentUrl));
-      return;
-    }
-
-    // Update state - Firestore subscription will handle loading comments
+    setViewMode("url");
     setCurrentUrl(normalizedUrl);
     setUrlInput(getDisplayUrl(normalizedUrl));
     setIframeError(false);
     setNewCommentPos(null);
     setSelectedPinId(null);
+    setCurrentImageId(null);
+    setImageDoc(null);
 
-    // Update browser URL with query parameter
-    updateBrowserUrl(getDisplayUrl(normalizedUrl));
-  };
+    updateBrowserUrl({ url: getDisplayUrl(normalizedUrl), image: null });
+  }, []);
 
   // Handle URL input key events
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -543,10 +645,9 @@ export default function Home() {
     }
   };
 
-  // Handle URL input blur (revert to currentUrl if not committed)
+  // Handle URL input blur
   const handleUrlBlur = () => {
     setIsUrlFocused(false);
-    // Skip revert if we just committed via Enter
     if (isUrlCommittedRef.current) {
       isUrlCommittedRef.current = false;
       return;
@@ -554,27 +655,127 @@ export default function Home() {
     setUrlInput(getDisplayUrl(currentUrl));
   };
 
-  // Focus name input when validation fails
+  // Focus name input
   const focusNameInput = () => {
     nameInputRef.current?.focus();
   };
 
-  // Handle overlay click
+  // Handle file upload
+  const handleFileUpload = async (file: File) => {
+    // Validate file type
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setUploadError("Invalid file type. Please upload PNG, JPEG, WebP, or GIF.");
+      return;
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadError("File too large. Maximum size is 10MB.");
+      return;
+    }
+
+    setUploadError(null);
+    setUploadProgress(0);
+
+    try {
+      // Get image dimensions
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = document.createElement("img");
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+
+      // Generate unique ID for the image
+      const imageId = generateId();
+      const fileExtension = file.name.split(".").pop() || "png";
+      const storagePath = `images/${imageId}.${fileExtension}`;
+
+      // Upload to Firebase Storage
+      const storageRef = ref(storage, storagePath);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+        },
+        (error) => {
+          console.error("Upload error:", error);
+          setUploadError("Upload failed. Please try again.");
+          setUploadProgress(null);
+        },
+        async () => {
+          // Get download URL
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+
+          // Create Firestore document
+          await addDoc(collection(db, "images"), {
+            storageUrl: downloadUrl,
+            fileName: file.name,
+            uploadedBy: authorName.trim() || "Anonymous",
+            uploadedAt: serverTimestamp(),
+            width: dimensions.width,
+            height: dimensions.height,
+          }).then((docRef) => {
+            // Navigate to image view
+            setUploadProgress(null);
+            setViewMode("image");
+            setCurrentImageId(docRef.id);
+            setImageDoc({
+              id: docRef.id,
+              storageUrl: downloadUrl,
+              fileName: file.name,
+              uploadedBy: authorName.trim() || "Anonymous",
+              uploadedAt: new Date().toISOString(),
+              width: dimensions.width,
+              height: dimensions.height,
+            });
+            updateBrowserUrl({ url: null, image: docRef.id });
+          });
+        }
+      );
+    } catch (error) {
+      console.error("Error processing file:", error);
+      setUploadError("Failed to process image. Please try again.");
+      setUploadProgress(null);
+    }
+  };
+
+  // Handle drag events
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  };
+
+  // Handle overlay click for placing comments
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Always clear selection when clicking overlay
     if (selectedPinId !== null) {
       setSelectedPinId(null);
     }
 
-    // In comment mode, also create new comment position
     if (mode === "comment") {
-      // Validate name before placing a pin
       if (!isNameValid) {
         focusNameInput();
         return;
       }
 
-      const container = containerRef.current;
+      const container = viewMode === "image" ? imageContainerRef.current : containerRef.current;
       if (!container) return;
 
       const rect = container.getBoundingClientRect();
@@ -588,18 +789,17 @@ export default function Home() {
 
   // Post new comment
   const handlePostComment = async () => {
-    if (!newCommentPos || !newCommentText.trim()) return;
+    if (!newCommentPos || !newCommentText.trim() || !currentTargetId) return;
 
-    // Validate name before posting
     if (!isNameValid) {
       focusNameInput();
       return;
     }
 
     try {
-      const hostname = getHostname(currentUrl);
-      await addDoc(collection(db, "comments"), {
-        url: hostname,
+      const commentData: Record<string, unknown> = {
+        targetType: currentTargetType,
+        targetId: currentTargetId,
         x: newCommentPos.x,
         y: newCommentPos.y,
         text: newCommentText.trim(),
@@ -607,8 +807,14 @@ export default function Home() {
         createdAt: serverTimestamp(),
         resolved: false,
         containerWidth: containerWidth,
-      });
-      // The onSnapshot listener will automatically update the UI
+      };
+
+      // For backward compatibility, also set url field for URL mode
+      if (currentTargetType === "url") {
+        commentData.url = currentTargetId;
+      }
+
+      await addDoc(collection(db, "comments"), commentData);
       setNewCommentPos(null);
       setNewCommentText("");
     } catch (error) {
@@ -626,7 +832,6 @@ export default function Home() {
   const handleEditComment = async (id: string, text: string) => {
     try {
       await updateDoc(doc(db, "comments", id), { text });
-      // The onSnapshot listener will automatically update the UI
     } catch (error) {
       console.error("Error editing comment:", error);
     }
@@ -636,18 +841,166 @@ export default function Home() {
   const handleDeleteComment = async (id: string) => {
     try {
       await deleteDoc(doc(db, "comments", id));
-      // The onSnapshot listener will automatically update the UI
     } catch (error) {
       console.error("Error deleting comment:", error);
     }
   };
 
+  // Go back to landing
+  const goToLanding = () => {
+    setViewMode("landing");
+    setMode("browse");
+    setSelectedPinId(null);
+    setNewCommentPos(null);
+    setComments([]);
+    updateBrowserUrl({ url: null, image: null });
+    window.history.replaceState({}, "", window.location.pathname);
+  };
+
+  // Render landing page
+  if (viewMode === "landing") {
+    return (
+      <div className="min-h-screen bg-slate-950">
+        {/* Header */}
+        <header className="border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <Image
+              src="https://design-system.stellar.org/img/stellar.svg"
+              alt="Stellar"
+              width={100}
+              height={26}
+              className="h-[26px] w-auto invert brightness-0"
+              priority
+            />
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">
+              Quick
+            </span>
+          </div>
+        </header>
+
+        {/* Main content */}
+        <div className="flex flex-col items-center justify-center px-4 py-16">
+          <h1 className="text-3xl font-bold text-white mb-2">
+            Collect feedback on any design
+          </h1>
+          <p className="text-slate-400 mb-12 text-center max-w-md">
+            Add comments to live websites or upload screenshots. Share the link with your team for realtime collaboration.
+          </p>
+
+          <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl">
+            {/* URL Mode Card */}
+            <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-600/20">
+                  <Globe className="h-5 w-5 text-purple-400" />
+                </div>
+                <h2 className="text-lg font-semibold text-white">Comment on a live URL</h2>
+              </div>
+              <p className="text-sm text-slate-400 mb-4">
+                Enter any public URL to load it in a frame and add comments.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (landingUrlInput.trim()) {
+                    navigateToUrl(landingUrlInput);
+                  }
+                }}
+                className="space-y-3"
+              >
+                <Input
+                  type="text"
+                  value={landingUrlInput}
+                  onChange={(e) => setLandingUrlInput(e.target.value)}
+                  placeholder="example.com"
+                  className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
+                />
+                <Button
+                  type="submit"
+                  disabled={!landingUrlInput.trim()}
+                  className="w-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  Load URL
+                </Button>
+              </form>
+            </div>
+
+            {/* Image Mode Card */}
+            <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-600/20">
+                  <ImageIcon className="h-5 w-5 text-purple-400" />
+                </div>
+                <h2 className="text-lg font-semibold text-white">Comment on a screenshot</h2>
+              </div>
+              <p className="text-sm text-slate-400 mb-4">
+                Upload an image to add comments. Great for sites that block embedding.
+              </p>
+
+              {uploadProgress !== null ? (
+                <div className="space-y-2">
+                  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full bg-purple-600 transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 text-center">
+                    Uploading... {Math.round(uploadProgress)}%
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      "flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 cursor-pointer transition-colors",
+                      isDragging
+                        ? "border-purple-500 bg-purple-500/10"
+                        : "border-white/20 hover:border-white/40 hover:bg-white/5"
+                    )}
+                  >
+                    <Upload className="h-8 w-8 text-slate-400 mb-2" />
+                    <p className="text-sm text-slate-400 text-center">
+                      Drag & drop or click to upload
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      PNG, JPEG, WebP, GIF (max 10MB)
+                    </p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileUpload(file);
+                    }}
+                    className="hidden"
+                  />
+                </>
+              )}
+
+              {uploadError && (
+                <p className="mt-2 text-sm text-red-400">{uploadError}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Render URL or Image viewing mode
   return (
     <div className="min-h-full">
-      {/* Header - Sticky */}
+      {/* Header */}
       <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
         {/* Logo + Badge */}
-        <div className="flex items-center gap-2">
+        <button onClick={goToLanding} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <Image
             src="https://design-system.stellar.org/img/stellar.svg"
             alt="Stellar"
@@ -659,47 +1012,55 @@ export default function Home() {
           <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">
             Quick
           </span>
-        </div>
+        </button>
 
-        {/* Editable URL Input */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-400">Viewing:</span>
-          <div className="relative">
-            <input
-              ref={urlInputRef}
-              type="text"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              onKeyDown={handleUrlKeyDown}
-              onFocus={() => setIsUrlFocused(true)}
-              onBlur={handleUrlBlur}
-              className={cn(
-                "bg-transparent text-sm text-slate-300 outline-none transition-all",
-                "min-w-[200px] max-w-[400px] py-1 pl-2 pr-7 rounded",
-                isUrlFocused
-                  ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
-                  : "border border-transparent hover:bg-white/5"
+        {/* URL Input (URL mode only) */}
+        {viewMode === "url" && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-400">Viewing:</span>
+            <div className="relative">
+              <input
+                ref={urlInputRef}
+                type="text"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={handleUrlKeyDown}
+                onFocus={() => setIsUrlFocused(true)}
+                onBlur={handleUrlBlur}
+                className={cn(
+                  "bg-transparent text-sm text-slate-300 outline-none transition-all",
+                  "min-w-[200px] max-w-[400px] py-1 pl-2 pr-7 rounded",
+                  isUrlFocused
+                    ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
+                    : "border border-transparent hover:bg-white/5"
+                )}
+                placeholder="Enter URL..."
+              />
+              {urlInput && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setUrlInput("");
+                    updateBrowserUrl({ url: null });
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               )}
-              placeholder="Enter URL..."
-            />
-            {urlInput && (
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setUrlInput("");
-                  // Clear the query parameter when URL is cleared
-                  updateBrowserUrl(null);
-                }}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Spacer */}
+        {/* Image name (Image mode only) */}
+        {viewMode === "image" && imageDoc && (
+          <div className="flex items-center gap-2">
+            <ImageIcon className="h-4 w-4 text-slate-400" />
+            <span className="text-sm text-slate-300">{imageDoc.fileName}</span>
+          </div>
+        )}
+
         <div className="flex-1" />
 
         {/* Comment as [name input] */}
@@ -746,162 +1107,301 @@ export default function Home() {
 
       {/* Main Content Area with Sidebar */}
       <div className="flex">
-        {/* Iframe Container - scrolls with page */}
+        {/* Content Container */}
         <div
           className={cn(
             "relative transition-all duration-300",
             isSidebarOpen ? "mr-80" : "mr-0"
           )}
           style={{ width: isSidebarOpen ? "calc(100% - 320px)" : "100%" }}
-          ref={containerRef}
         >
-          {/* Iframe or Fallback */}
-          {iframeError ? (
-            <div className="flex h-[500px] w-full flex-col items-center justify-center bg-slate-900 text-center">
-              <div className="rounded-lg border border-white/10 bg-white/5 p-8 backdrop-blur-md">
-                <div className="text-4xl mb-4">🚫</div>
-                <h2 className="text-xl font-semibold text-white mb-2">
-                  This site cannot be embedded
-                </h2>
-                <p className="text-slate-400 max-w-md">
-                  Try a different URL, or open{" "}
-                  <a
-                    href={currentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-purple-400 hover:text-purple-300 underline"
-                  >
-                    {getDisplayUrl(currentUrl)}
-                  </a>{" "}
-                  in a new tab.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <iframe
-              key={currentUrl}
-              src={currentUrl}
-              className="w-full border-0"
-              style={{ height: "5000px" }}
-              title="Target Website"
-              scrolling="no"
-              onError={() => setIframeError(true)}
-            />
-          )}
-
-          {/* Overlay - captures clicks in comment mode OR when a pin is selected */}
-          <div
-            className={cn(
-              "absolute inset-0",
-              mode === "comment"
-                ? "cursor-crosshair pointer-events-auto"
-                : selectedPinId !== null
-                  ? "pointer-events-auto"
-                  : "pointer-events-none"
-            )}
-            onClick={handleOverlayClick}
-            onMouseMove={(e) => {
-              if (mode === "comment" && !newCommentPos) {
-                setCursorPos({ x: e.clientX, y: e.clientY });
-              }
-            }}
-            onMouseLeave={() => setCursorPos(null)}
-          />
-
-          {/* Cursor-following tooltip in comment mode */}
-          {mode === "comment" && !newCommentPos && cursorPos && (
-            !isNameValid ? (
-              <div
-                className="pointer-events-none fixed z-[100]"
-                style={{
-                  left: cursorPos.x + 16,
-                  top: cursorPos.y + 16,
-                }}
-              >
-                <div className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
-                  Enter your name first
-                </div>
-              </div>
-            ) : (
-              <div
-                className="pointer-events-none fixed z-[100]"
-                style={{
-                  left: cursorPos.x + 6,
-                  top: cursorPos.y + 6,
-                }}
-              >
-                <span className="text-xl">💬</span>
-              </div>
-            )
-          )}
-
-          {/* Existing Comment Pins */}
-          {comments.map((comment) => (
-            <CommentPin
-              key={comment.id}
-              comment={comment}
-              isSelected={selectedPinId === comment.id}
-              isHighlighted={hoveredPinId === comment.id}
-              isSidebarOpen={isSidebarOpen}
-              currentContainerWidth={containerWidth}
-              onSelect={setSelectedPinId}
-              onHover={setHoveredPinId}
-              onEdit={handleEditComment}
-              onDelete={handleDeleteComment}
-            />
-          ))}
-
-          {/* New Comment Popup */}
-          {newCommentPos && (
-            <div
-              className="pointer-events-auto absolute z-50"
-              style={{
-                left: `${newCommentPos.x}%`,
-                top: `${newCommentPos.y}%`,
-                transform: "translate(8px, -50%)",
-              }}
-            >
-              <div className="w-64 rounded-lg border border-white/10 bg-slate-900/95 p-3 shadow-xl backdrop-blur-md">
-                <Input
-                  ref={newCommentInputRef}
-                  value={newCommentText}
-                  onChange={(e) => setNewCommentText(e.target.value)}
-                  className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
-                  placeholder="Add a comment..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handlePostComment();
-                    if (e.key === "Escape") handleCancelNewComment();
-                  }}
-                />
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
-                    Posting as {authorName}
-                  </span>
-                  <div className="flex gap-2">
+          {/* URL Mode: Iframe */}
+          {viewMode === "url" && (
+            <div ref={containerRef} className="relative">
+              {iframeError ? (
+                <div className="flex h-[500px] w-full flex-col items-center justify-center bg-slate-900 text-center">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-8 backdrop-blur-md">
+                    <div className="text-4xl mb-4">🚫</div>
+                    <h2 className="text-xl font-semibold text-white mb-2">
+                      This site cannot be embedded
+                    </h2>
+                    <p className="text-slate-400 max-w-md mb-4">
+                      Try uploading a screenshot instead, or open{" "}
+                      <a
+                        href={currentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-purple-400 hover:text-purple-300 underline"
+                      >
+                        {getDisplayUrl(currentUrl)}
+                      </a>{" "}
+                      in a new tab.
+                    </p>
                     <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleCancelNewComment}
-                      className="text-slate-400 hover:text-white"
+                      onClick={goToLanding}
+                      variant="outline"
+                      className="border-white/20 text-white hover:bg-white/10"
                     >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handlePostComment}
-                      disabled={!newCommentText.trim()}
-                      className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      Post
+                      Upload Screenshot Instead
                     </Button>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <iframe
+                  key={currentUrl}
+                  src={currentUrl}
+                  className="w-full border-0"
+                  style={{ height: "5000px" }}
+                  title="Target Website"
+                  scrolling="no"
+                  onError={() => setIframeError(true)}
+                />
+              )}
+
+              {/* Overlay */}
+              <div
+                className={cn(
+                  "absolute inset-0",
+                  mode === "comment"
+                    ? "cursor-crosshair pointer-events-auto"
+                    : selectedPinId !== null
+                      ? "pointer-events-auto"
+                      : "pointer-events-none"
+                )}
+                onClick={handleOverlayClick}
+                onMouseMove={(e) => {
+                  if (mode === "comment" && !newCommentPos) {
+                    setCursorPos({ x: e.clientX, y: e.clientY });
+                  }
+                }}
+                onMouseLeave={() => setCursorPos(null)}
+              />
+
+              {/* Comment Pins */}
+              {comments.map((comment) => (
+                <CommentPin
+                  key={comment.id}
+                  comment={comment}
+                  isSelected={selectedPinId === comment.id}
+                  isHighlighted={hoveredPinId === comment.id}
+                  isSidebarOpen={isSidebarOpen}
+                  currentContainerWidth={containerWidth}
+                  onSelect={setSelectedPinId}
+                  onHover={setHoveredPinId}
+                  onEdit={handleEditComment}
+                  onDelete={handleDeleteComment}
+                />
+              ))}
+
+              {/* New Comment Popup */}
+              {newCommentPos && (
+                <div
+                  className="pointer-events-auto absolute z-50"
+                  style={{
+                    left: `${newCommentPos.x}%`,
+                    top: `${newCommentPos.y}%`,
+                    transform: "translate(8px, -50%)",
+                  }}
+                >
+                  <div className="w-64 rounded-lg border border-white/10 bg-slate-900/95 p-3 shadow-xl backdrop-blur-md">
+                    <Input
+                      ref={newCommentInputRef}
+                      value={newCommentText}
+                      onChange={(e) => setNewCommentText(e.target.value)}
+                      className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
+                      placeholder="Add a comment..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handlePostComment();
+                        if (e.key === "Escape") handleCancelNewComment();
+                      }}
+                    />
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-slate-400">
+                        Posting as {authorName}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={handleCancelNewComment}
+                          className="text-slate-400 hover:text-white"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handlePostComment}
+                          disabled={!newCommentText.trim()}
+                          className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                        >
+                          Post
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Image Mode */}
+          {viewMode === "image" && (
+            <div className="flex items-center justify-center min-h-[calc(100vh-57px)] bg-slate-900/50 p-8">
+              {isLoadingImage ? (
+                <div className="text-slate-400">Loading image...</div>
+              ) : imageError ? (
+                <div className="text-center">
+                  <div className="text-4xl mb-4">🖼️</div>
+                  <h2 className="text-xl font-semibold text-white mb-2">
+                    {imageError}
+                  </h2>
+                  <p className="text-slate-400 mb-4">
+                    This image may have been deleted or the link is invalid.
+                  </p>
+                  <Button
+                    onClick={goToLanding}
+                    className="bg-purple-600 text-white hover:bg-purple-700"
+                  >
+                    Go Back
+                  </Button>
+                </div>
+              ) : imageDoc ? (
+                <div
+                  ref={imageContainerRef}
+                  className="relative rounded-lg shadow-2xl shadow-black/50 border border-white/10 overflow-hidden"
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "calc(100vh - 120px)",
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageDoc.storageUrl}
+                    alt={imageDoc.fileName}
+                    className="block max-w-full max-h-[calc(100vh-120px)] object-contain"
+                    style={{
+                      width: "auto",
+                      height: "auto",
+                    }}
+                  />
+
+                  {/* Overlay */}
+                  <div
+                    className={cn(
+                      "absolute inset-0",
+                      mode === "comment"
+                        ? "cursor-crosshair pointer-events-auto"
+                        : selectedPinId !== null
+                          ? "pointer-events-auto"
+                          : "pointer-events-none"
+                    )}
+                    onClick={handleOverlayClick}
+                    onMouseMove={(e) => {
+                      if (mode === "comment" && !newCommentPos) {
+                        setCursorPos({ x: e.clientX, y: e.clientY });
+                      }
+                    }}
+                    onMouseLeave={() => setCursorPos(null)}
+                  />
+
+                  {/* Comment Pins */}
+                  {comments.map((comment) => (
+                    <CommentPin
+                      key={comment.id}
+                      comment={comment}
+                      isSelected={selectedPinId === comment.id}
+                      isHighlighted={hoveredPinId === comment.id}
+                      isSidebarOpen={isSidebarOpen}
+                      currentContainerWidth={containerWidth}
+                      onSelect={setSelectedPinId}
+                      onHover={setHoveredPinId}
+                      onEdit={handleEditComment}
+                      onDelete={handleDeleteComment}
+                    />
+                  ))}
+
+                  {/* New Comment Popup */}
+                  {newCommentPos && (
+                    <div
+                      className="pointer-events-auto absolute z-50"
+                      style={{
+                        left: `${newCommentPos.x}%`,
+                        top: `${newCommentPos.y}%`,
+                        transform: "translate(8px, -50%)",
+                      }}
+                    >
+                      <div className="w-64 rounded-lg border border-white/10 bg-slate-900/95 p-3 shadow-xl backdrop-blur-md">
+                        <Input
+                          ref={newCommentInputRef}
+                          value={newCommentText}
+                          onChange={(e) => setNewCommentText(e.target.value)}
+                          className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
+                          placeholder="Add a comment..."
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handlePostComment();
+                            if (e.key === "Escape") handleCancelNewComment();
+                          }}
+                        />
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs text-slate-400">
+                            Posting as {authorName}
+                          </span>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleCancelNewComment}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={handlePostComment}
+                              disabled={!newCommentText.trim()}
+                              className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                            >
+                              Post
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
 
-        {/* Comments Sidebar - Fixed */}
+        {/* Cursor-following tooltip in comment mode */}
+        {mode === "comment" && !newCommentPos && cursorPos && (
+          !isNameValid ? (
+            <div
+              className="pointer-events-none fixed z-[100]"
+              style={{
+                left: cursorPos.x + 16,
+                top: cursorPos.y + 16,
+              }}
+            >
+              <div className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+                Enter your name first
+              </div>
+            </div>
+          ) : (
+            <div
+              className="pointer-events-none fixed z-[100]"
+              style={{
+                left: cursorPos.x + 6,
+                top: cursorPos.y + 6,
+              }}
+            >
+              <span className="text-xl">💬</span>
+            </div>
+          )
+        )}
+
+        {/* Comments Sidebar */}
         <div
           className={cn(
             "fixed right-0 top-[57px] bottom-0 flex flex-col border-l border-white/10 bg-slate-900/95 backdrop-blur-md transition-all duration-300 z-40",
@@ -910,7 +1410,6 @@ export default function Home() {
         >
           {isSidebarOpen && (
             <>
-              {/* Sidebar Header */}
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <h2 className="text-sm font-semibold text-white">Comments</h2>
                 <button
@@ -925,7 +1424,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* Sidebar Content */}
               <div className="flex-1 overflow-y-auto">
                 {isLoadingComments ? (
                   <div className="flex h-full items-center justify-center p-4">
