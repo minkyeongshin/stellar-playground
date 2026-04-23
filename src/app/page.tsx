@@ -713,11 +713,7 @@ export default function Home() {
       <div className="flex">
         {/* Iframe Container - scrolls with page */}
         <div
-          className={cn(
-            "relative transition-all duration-300",
-            isSidebarOpen ? "mr-80" : "mr-0"
-          )}
-          style={{ width: isSidebarOpen ? "calc(100% - 320px)" : "100%" }}
+          className="relative w-full"
           ref={containerRef}
         >
           {/* Iframe or Fallback */}
