@@ -622,7 +622,7 @@ export default function Home() {
             priority
           />
           <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">
-            Quick View
+            Quick
           </span>
         </div>
 
