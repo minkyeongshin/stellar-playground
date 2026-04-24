@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { X, ImageIcon, MessageCircle } from "lucide-react";
+import { X, ImageIcon, MessageCircle, ArrowUp } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -881,19 +881,105 @@ export default function Home() {
     }
   };
 
-  // Render unified layout
+  // Render landing page with Quick branding
+  if (isLanding) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#5B4FE9] px-4 py-8">
+        <div className="flex flex-col items-center">
+          {/* Quick wordmark */}
+          <h1
+            className="mb-10 select-none text-center font-serif text-[64px] font-black italic leading-none text-white sm:text-[96px]"
+            style={{
+              WebkitTextStroke: "3px #000",
+              textShadow: "6px 6px 0 #000",
+              transform: "rotate(-2deg)",
+              letterSpacing: "-2px",
+            }}
+          >
+            Quick
+          </h1>
+
+          {/* Input card */}
+          <div
+            className="w-full max-w-[520px] rounded-[20px] border-4 border-black bg-white px-8 py-12 sm:px-14"
+            style={{ boxShadow: "10px 10px 0 #000" }}
+          >
+            {/* Upload icon */}
+            <div className="mx-auto mb-6 flex h-[72px] w-[72px] items-center justify-center rounded-2xl border-[3px] border-black bg-[#5B4FE9]">
+              <ArrowUp className="h-9 w-9 text-white" strokeWidth={3} />
+            </div>
+
+            {/* Heading */}
+            <h2
+              className="mb-2 text-center font-mono text-2xl font-bold uppercase tracking-[2px] text-black sm:text-[28px]"
+              style={{ fontFamily: "'Courier New', Courier, monospace" }}
+            >
+              DROP YOUR URL HERE
+            </h2>
+
+            {/* Subheading */}
+            <p
+              className="mb-6 text-center font-mono text-sm uppercase tracking-[2px] text-[#888]"
+              style={{ fontFamily: "'Courier New', Courier, monospace" }}
+            >
+              COMMENT • SHARE • SHIP
+            </p>
+
+            {/* Input + Button row */}
+            <div className="flex gap-2.5">
+              <input
+                ref={landingUrlInputRef}
+                type="text"
+                value={landingUrlInput}
+                onChange={(e) => setLandingUrlInput(e.target.value)}
+                onKeyDown={handleLandingUrlKeyDown}
+                className="flex-1 rounded-[10px] border-2 border-black bg-[#F5F3FF] px-4 py-3 font-mono text-[15px] text-black outline-none placeholder:text-gray-400"
+                style={{ fontFamily: "'Courier New', Courier, monospace" }}
+                placeholder="https://yourproject.vercel.app"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (landingUrlInput.trim()) {
+                    navigateToUrl(landingUrlInput);
+                  }
+                }}
+                className="rounded-[10px] border-2 border-black bg-[#5B4FE9] px-6 py-3 font-mono text-[15px] font-bold uppercase tracking-[1px] text-white transition-all hover:-translate-x-px hover:-translate-y-px active:translate-x-0.5 active:translate-y-0.5"
+                style={{
+                  fontFamily: "'Courier New', Courier, monospace",
+                  boxShadow: "4px 4px 0 #000",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = "5px 5px 0 #000";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = "4px 4px 0 #000";
+                }}
+                onMouseDown={(e) => {
+                  e.currentTarget.style.boxShadow = "2px 2px 0 #000";
+                }}
+                onMouseUp={(e) => {
+                  e.currentTarget.style.boxShadow = "5px 5px 0 #000";
+                }}
+              >
+                GO →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Render viewing page (unchanged)
   return (
     <div className="flex min-h-screen flex-col bg-slate-950">
-      {/* Unified Header */}
+      {/* Header for viewing page */}
       <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
         {/* Logo + Badge */}
         <button
-          onClick={isLanding ? undefined : goToLanding}
-          className={cn(
-            "flex items-center gap-2 transition-opacity",
-            !isLanding && "hover:opacity-80"
-          )}
-          disabled={isLanding}
+          onClick={goToLanding}
+          className="flex items-center gap-2 transition-opacity hover:opacity-80"
         >
           <Image
             src="https://design-system.stellar.org/img/stellar.svg"
@@ -908,24 +994,11 @@ export default function Home() {
           </span>
         </button>
 
-        {/* Viewing: URL Input - always present */}
+        {/* Viewing: URL Input */}
         <div className="flex items-center gap-2">
-          <span className={cn("text-sm", isLanding ? "text-slate-500" : "text-slate-400")}>
-            Viewing:
-          </span>
+          <span className="text-sm text-slate-400">Viewing:</span>
           <div className="relative">
-            {isLanding ? (
-              // Landing page: highlighted URL input
-              <input
-                ref={landingUrlInputRef}
-                type="text"
-                value={landingUrlInput}
-                onChange={(e) => setLandingUrlInput(e.target.value)}
-                onKeyDown={handleLandingUrlKeyDown}
-                className="min-w-[280px] max-w-[400px] rounded border border-purple-500/60 bg-white/10 py-1 pl-2 pr-2 text-sm text-white outline-none ring-2 ring-purple-500/30 transition-all placeholder:text-slate-400 focus:border-purple-400 focus:ring-purple-400/40"
-                placeholder="Enter demo URL"
-              />
-            ) : viewMode === "url" ? (
+            {viewMode === "url" ? (
               // URL viewing mode: editable URL with clear button
               <>
                 <input
@@ -980,36 +1053,22 @@ export default function Home() {
 
         <div className="flex-1" />
 
-        {/* Comment as [name input] - disabled on landing */}
-        <div
-          className={cn(
-            "flex items-center gap-2 text-sm",
-            isLanding ? "cursor-not-allowed" : "text-slate-400"
-          )}
-        >
-          <span className={isLanding ? "text-slate-400/70" : "text-slate-400"}>Comment as</span>
+        {/* Comment as [name input] */}
+        <div className="flex items-center gap-2 text-sm text-slate-400">
+          <span>Comment as</span>
           <input
             ref={nameInputRef}
             type="text"
             value={authorName}
             onChange={(e) => setAuthorName(e.target.value)}
-            disabled={isLanding}
-            className={cn(
-              "w-32 rounded border px-2 py-1 text-sm outline-none transition-all",
-              isLanding
-                ? "border-white/15 bg-white/5 text-slate-400 cursor-not-allowed placeholder:text-slate-400/70"
-                : "border-white/20 bg-white/5 text-white placeholder:text-slate-500 focus:border-purple-500/50 focus:bg-white/10"
-            )}
+            className="w-32 rounded border border-white/20 bg-white/5 px-2 py-1 text-sm text-white outline-none transition-all placeholder:text-slate-500 focus:border-purple-500/50 focus:bg-white/10"
             placeholder="Your name"
           />
         </div>
       </header>
 
-      {/* Landing page: empty body */}
-      {isLanding && <div className="flex-1" />}
-
-      {/* Main Content Area with Sidebar - only when viewing */}
-      {!isLanding && <div className="flex">
+      {/* Main Content Area with Sidebar */}
+      <div className="flex">
         {/* Content Container */}
         <div
           className={cn(
@@ -1398,11 +1457,10 @@ export default function Home() {
             </>
           )}
         </div>
-      </div>}
+      </div>
 
-      {/* Floating Action Button - only when viewing */}
-      {!isLanding && (
-        <button
+      {/* Floating Action Button */}
+      <button
           type="button"
           onClick={() => {
             if (isSidebarOpen) {
@@ -1431,7 +1489,6 @@ export default function Home() {
             </span>
           )}
         </button>
-      )}
 
       {/* Pulse Animation Keyframes */}
       <style jsx global>{`
