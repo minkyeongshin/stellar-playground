@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { X, Upload, Globe, ImageIcon } from "lucide-react";
+import { X, ImageIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -860,7 +860,7 @@ export default function Home() {
   // Render landing page
   if (viewMode === "landing") {
     return (
-      <div className="min-h-screen bg-slate-950">
+      <div className="flex min-h-screen flex-col bg-slate-950">
         {/* Header */}
         <header className="border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
           <div className="flex items-center gap-2">
@@ -878,117 +878,35 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Main content */}
-        <div className="flex flex-col items-center justify-center px-4 py-16">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Collect feedback on any design
-          </h1>
-          <p className="text-slate-400 mb-12 text-center max-w-md">
-            Add comments to live websites or upload screenshots. Share the link with your team for realtime collaboration.
+        {/* Centered content */}
+        <div className="flex flex-1 flex-col items-center justify-center px-4">
+          <p className="mb-4 text-sm text-slate-400">
+            Enter any public URL to load it in a frame and add comments.
           </p>
-
-          <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl">
-            {/* URL Mode Card */}
-            <div className="rounded-xl border border-white/10 bg-white/5 p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-600/20">
-                  <Globe className="h-5 w-5 text-purple-400" />
-                </div>
-                <h2 className="text-lg font-semibold text-white">Comment on a live URL</h2>
-              </div>
-              <p className="text-sm text-slate-400 mb-4">
-                Enter any public URL to load it in a frame and add comments.
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (landingUrlInput.trim()) {
-                    navigateToUrl(landingUrlInput);
-                  }
-                }}
-                className="space-y-3"
-              >
-                <Input
-                  type="text"
-                  value={landingUrlInput}
-                  onChange={(e) => setLandingUrlInput(e.target.value)}
-                  placeholder="example.com"
-                  className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
-                />
-                <Button
-                  type="submit"
-                  disabled={!landingUrlInput.trim()}
-                  className="w-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-                >
-                  Load URL
-                </Button>
-              </form>
-            </div>
-
-            {/* Image Mode Card */}
-            <div className="rounded-xl border border-white/10 bg-white/5 p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-600/20">
-                  <ImageIcon className="h-5 w-5 text-purple-400" />
-                </div>
-                <h2 className="text-lg font-semibold text-white">Comment on a screenshot</h2>
-              </div>
-              <p className="text-sm text-slate-400 mb-4">
-                Upload an image to add comments. Great for sites that block embedding.
-              </p>
-
-              {uploadProgress !== null ? (
-                <div className="space-y-2">
-                  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                    <div
-                      className="h-full bg-purple-600 transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-400 text-center">
-                    Uploading... {Math.round(uploadProgress)}%
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                      "flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 cursor-pointer transition-colors",
-                      isDragging
-                        ? "border-purple-500 bg-purple-500/10"
-                        : "border-white/20 hover:border-white/40 hover:bg-white/5"
-                    )}
-                  >
-                    <Upload className="h-8 w-8 text-slate-400 mb-2" />
-                    <p className="text-sm text-slate-400 text-center">
-                      Drag & drop or click to upload
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      PNG, JPEG, WebP, GIF (max 10MB)
-                    </p>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleFileUpload(file);
-                    }}
-                    className="hidden"
-                  />
-                </>
-              )}
-
-              {uploadError && (
-                <p className="mt-2 text-sm text-red-400">{uploadError}</p>
-              )}
-            </div>
-          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (landingUrlInput.trim()) {
+                navigateToUrl(landingUrlInput);
+              }
+            }}
+            className="flex w-full max-w-md gap-3"
+          >
+            <Input
+              type="text"
+              value={landingUrlInput}
+              onChange={(e) => setLandingUrlInput(e.target.value)}
+              placeholder="https://example.com"
+              className="flex-1 border-white/20 bg-white/10 text-white placeholder:text-slate-500"
+            />
+            <Button
+              type="submit"
+              disabled={!landingUrlInput.trim()}
+              className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              Load URL
+            </Button>
+          </form>
         </div>
       </div>
     );
