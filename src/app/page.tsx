@@ -585,11 +585,15 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectedPinId, mode]);
 
-  // Handle "C" key to toggle comment mode
+  // Handle "C" key to enter comment mode (plain C only, no modifiers)
   useEffect(() => {
     if (viewMode === "landing") return;
 
-    const handleToggleComment = (e: KeyboardEvent) => {
+    const handleCommentShortcut = (e: KeyboardEvent) => {
+      // Ignore if any modifier key is held
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+      // Ignore if typing in an input field
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -600,17 +604,15 @@ export default function Home() {
       }
 
       if (e.key === "c" || e.key === "C") {
-        if (mode === "comment") {
-          setMode("browse");
-          setNewCommentPos(null);
-        } else {
+        // Only enter comment mode, don't toggle (use Escape to exit)
+        if (mode !== "comment") {
           setMode("comment");
         }
       }
     };
 
-    window.addEventListener("keydown", handleToggleComment);
-    return () => window.removeEventListener("keydown", handleToggleComment);
+    window.addEventListener("keydown", handleCommentShortcut);
+    return () => window.removeEventListener("keydown", handleCommentShortcut);
   }, [mode, viewMode]);
 
   // Navigate to URL mode
@@ -817,6 +819,8 @@ export default function Home() {
       await addDoc(collection(db, "comments"), commentData);
       setNewCommentPos(null);
       setNewCommentText("");
+      // Exit comment mode after posting
+      setMode("browse");
     } catch (error) {
       console.error("Error adding comment:", error);
     }
@@ -1300,6 +1304,23 @@ export default function Home() {
           )
         )}
 
+        {/* Comment mode hint overlay at bottom */}
+        {mode === "comment" && !newCommentPos && (
+          <div className="pointer-events-none fixed bottom-20 left-1/2 z-[100] -translate-x-1/2">
+            <div className="rounded-lg bg-slate-900/95 px-4 py-2 shadow-lg backdrop-blur-sm border border-white/10">
+              <p className="text-sm text-slate-300">
+                Click anywhere to place a comment{" "}
+                <span className="text-slate-500">·</span>{" "}
+                Press{" "}
+                <kbd className="inline-flex items-center justify-center rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-300">
+                  Esc
+                </kbd>{" "}
+                to cancel
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Comments Sidebar */}
         <div
           className={cn(
@@ -1331,11 +1352,15 @@ export default function Home() {
                     </p>
                   </div>
                 ) : comments.length === 0 ? (
-                  <div className="flex h-full items-center justify-center p-4">
-                    <p className="text-center text-sm text-slate-500">
-                      No comments yet.
-                      <br />
-                      Switch to Comment mode to add one.
+                  <div className="flex h-full flex-col items-center justify-center p-6">
+                    <MessageCircle className="h-12 w-12 text-slate-600 mb-4" />
+                    <h3 className="text-sm font-medium text-slate-300 mb-2">No comments yet</h3>
+                    <p className="text-center text-xs text-slate-500">
+                      Press{" "}
+                      <kbd className="inline-flex items-center justify-center rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-300">
+                        C
+                      </kbd>{" "}
+                      to start commenting
                     </p>
                   </div>
                 ) : (
