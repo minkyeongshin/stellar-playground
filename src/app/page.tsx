@@ -857,68 +857,40 @@ export default function Home() {
     window.history.replaceState({}, "", window.location.pathname);
   };
 
-  // Render landing page
-  if (viewMode === "landing") {
-    return (
-      <div className="flex min-h-screen flex-col bg-slate-950">
-        {/* Header */}
-        <header className="border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <Image
-              src="https://design-system.stellar.org/img/stellar.svg"
-              alt="Stellar"
-              width={100}
-              height={26}
-              className="h-[26px] w-auto invert brightness-0"
-              priority
-            />
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">
-              Quick
-            </span>
-          </div>
-        </header>
+  const isLanding = viewMode === "landing";
+  const landingUrlInputRef = useRef<HTMLInputElement>(null);
 
-        {/* Centered content */}
-        <div className="flex flex-1 flex-col items-center justify-center px-4">
-          <p className="mb-4 text-sm text-slate-400">
-            Enter any public URL to load it in a frame and add comments.
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (landingUrlInput.trim()) {
-                navigateToUrl(landingUrlInput);
-              }
-            }}
-            className="flex w-full max-w-md gap-3"
-          >
-            <Input
-              type="text"
-              value={landingUrlInput}
-              onChange={(e) => setLandingUrlInput(e.target.value)}
-              placeholder="https://example.com"
-              className="flex-1 border-white/20 bg-white/10 text-white placeholder:text-slate-500"
-            />
-            <Button
-              type="submit"
-              disabled={!landingUrlInput.trim()}
-              className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-            >
-              Load URL
-            </Button>
-          </form>
-        </div>
-      </div>
-    );
-  }
+  // Autofocus URL input on landing page
+  useEffect(() => {
+    if (isLanding && isHydrated && landingUrlInputRef.current) {
+      landingUrlInputRef.current.focus();
+    }
+  }, [isLanding, isHydrated]);
 
-  // Render URL or Image viewing mode
+  // Handle landing URL input key events
+  const handleLandingUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (landingUrlInput.trim()) {
+        navigateToUrl(landingUrlInput);
+      }
+    }
+  };
+
+  // Render unified layout
   return (
-    <div className="min-h-full">
-      {/* Header */}
+    <div className="flex min-h-screen flex-col bg-slate-950">
+      {/* Unified Header */}
       <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
         {/* Logo + Badge */}
-        <button onClick={goToLanding} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+        <button
+          onClick={isLanding ? undefined : goToLanding}
+          className={cn(
+            "flex items-center gap-2 transition-opacity",
+            !isLanding && "hover:opacity-80"
+          )}
+          disabled={isLanding}
+        >
           <Image
             src="https://design-system.stellar.org/img/stellar.svg"
             alt="Stellar"
@@ -932,73 +904,107 @@ export default function Home() {
           </span>
         </button>
 
-        {/* URL Input (URL mode only) */}
-        {viewMode === "url" && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-400">Viewing:</span>
-            <div className="relative">
+        {/* Viewing: URL Input - always present */}
+        <div className="flex items-center gap-2">
+          <span className={cn("text-sm", isLanding ? "text-slate-500" : "text-slate-400")}>
+            Viewing:
+          </span>
+          <div className="relative">
+            {isLanding ? (
+              // Landing page: highlighted URL input
               <input
-                ref={urlInputRef}
+                ref={landingUrlInputRef}
                 type="text"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                onKeyDown={handleUrlKeyDown}
-                onFocus={() => setIsUrlFocused(true)}
-                onBlur={handleUrlBlur}
-                className={cn(
-                  "bg-transparent text-sm text-slate-300 outline-none transition-all",
-                  "min-w-[200px] max-w-[400px] py-1 pl-2 pr-7 rounded",
-                  isUrlFocused
-                    ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
-                    : "border border-transparent hover:bg-white/5"
-                )}
-                placeholder="Enter URL..."
+                value={landingUrlInput}
+                onChange={(e) => setLandingUrlInput(e.target.value)}
+                onKeyDown={handleLandingUrlKeyDown}
+                className="min-w-[280px] max-w-[400px] rounded border border-purple-500/60 bg-white/10 py-1 pl-2 pr-2 text-sm text-white outline-none ring-2 ring-purple-500/30 transition-all placeholder:text-slate-400 focus:border-purple-400 focus:ring-purple-400/40"
+                placeholder="Enter any public URL (e.g., https://example.com)"
               />
-              {urlInput && (
+            ) : viewMode === "url" ? (
+              // URL viewing mode: editable URL with clear button
+              <>
+                <input
+                  ref={urlInputRef}
+                  type="text"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  onKeyDown={handleUrlKeyDown}
+                  onFocus={() => setIsUrlFocused(true)}
+                  onBlur={handleUrlBlur}
+                  className={cn(
+                    "bg-transparent text-sm text-slate-300 outline-none transition-all",
+                    "min-w-[200px] max-w-[400px] py-1 pl-2 pr-7 rounded",
+                    isUrlFocused
+                      ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
+                      : "border border-transparent hover:bg-white/5"
+                  )}
+                  placeholder="Enter URL..."
+                />
+                {urlInput && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      goToLanding();
+                    }}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </>
+            ) : viewMode === "image" && imageDoc ? (
+              // Image viewing mode: show filename with clear button
+              <div className="flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 text-slate-400" />
+                <span className="text-sm text-slate-300">{imageDoc.fileName}</span>
                 <button
                   type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setUrlInput("");
-                    updateBrowserUrl({ url: null });
-                  }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
+                  onClick={goToLanding}
+                  className="p-0.5 text-slate-500 hover:text-white transition-colors"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              // Image loading state
+              <span className="text-sm text-slate-500">Loading...</span>
+            )}
           </div>
-        )}
-
-        {/* Image name (Image mode only) */}
-        {viewMode === "image" && imageDoc && (
-          <div className="flex items-center gap-2">
-            <ImageIcon className="h-4 w-4 text-slate-400" />
-            <span className="text-sm text-slate-300">{imageDoc.fileName}</span>
-          </div>
-        )}
+        </div>
 
         <div className="flex-1" />
 
-        {/* Comment as [name input] */}
-        <div className="flex items-center gap-2 text-sm text-slate-400">
-          <span>Comment as</span>
+        {/* Comment as [name input] - disabled on landing */}
+        <div
+          className={cn(
+            "flex items-center gap-2 text-sm",
+            isLanding ? "opacity-40 cursor-not-allowed" : "text-slate-400"
+          )}
+        >
+          <span className={isLanding ? "text-slate-500" : "text-slate-400"}>Comment as</span>
           <input
             ref={nameInputRef}
             type="text"
             value={authorName}
             onChange={(e) => setAuthorName(e.target.value)}
-            className="w-32 rounded border border-white/20 bg-white/5 px-2 py-1 text-sm text-white outline-none transition-all placeholder:text-slate-500 focus:border-purple-500/50 focus:bg-white/10"
+            disabled={isLanding}
+            className={cn(
+              "w-32 rounded border px-2 py-1 text-sm outline-none transition-all placeholder:text-slate-500",
+              isLanding
+                ? "border-white/10 bg-white/5 text-slate-500 cursor-not-allowed"
+                : "border-white/20 bg-white/5 text-white focus:border-purple-500/50 focus:bg-white/10"
+            )}
             placeholder="Your name"
           />
         </div>
 
-        {/* Comment Toggle Button */}
+        {/* Comment Toggle Button - disabled on landing */}
         <div className="relative flex items-center">
           <button
             type="button"
-            onClick={() => {
+            onClick={isLanding ? undefined : () => {
               if (mode === "comment") {
                 setMode("browse");
                 setNewCommentPos(null);
@@ -1006,16 +1012,19 @@ export default function Home() {
                 setMode("comment");
               }
             }}
+            disabled={isLanding}
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-full border text-sm transition-all",
-              mode === "comment"
-                ? "border-purple-500 bg-purple-600/20 text-purple-300"
-                : "border-white/30 bg-transparent text-slate-400 hover:border-white/50 hover:bg-white/10 hover:text-white"
+              isLanding
+                ? "border-white/10 bg-transparent text-slate-600 opacity-40 cursor-not-allowed"
+                : mode === "comment"
+                  ? "border-purple-500 bg-purple-600/20 text-purple-300"
+                  : "border-white/30 bg-transparent text-slate-400 hover:border-white/50 hover:bg-white/10 hover:text-white"
             )}
           >
             💬
           </button>
-          {comments.length > 0 && (
+          {!isLanding && comments.length > 0 && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-purple-600 px-1 text-[10px] font-medium text-white">
               {comments.length}
             </span>
@@ -1023,8 +1032,11 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Content Area with Sidebar */}
-      <div className="flex">
+      {/* Landing page: empty body */}
+      {isLanding && <div className="flex-1" />}
+
+      {/* Main Content Area with Sidebar - only when viewing */}
+      {!isLanding && <div className="flex">
         {/* Content Container */}
         <div
           className={cn(
@@ -1392,7 +1404,7 @@ export default function Home() {
             </>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Pulse Animation Keyframes */}
       <style jsx global>{`
