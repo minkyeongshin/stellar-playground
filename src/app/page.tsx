@@ -919,7 +919,7 @@ export default function Home() {
                 onChange={(e) => setLandingUrlInput(e.target.value)}
                 onKeyDown={handleLandingUrlKeyDown}
                 className="min-w-[280px] max-w-[400px] rounded border border-purple-500/60 bg-white/10 py-1 pl-2 pr-2 text-sm text-white outline-none ring-2 ring-purple-500/30 transition-all placeholder:text-slate-400 focus:border-purple-400 focus:ring-purple-400/40"
-                placeholder="Enter any public URL (e.g., https://example.com)"
+                placeholder="Enter any demo URL"
               />
             ) : viewMode === "url" ? (
               // URL viewing mode: editable URL with clear button
@@ -980,10 +980,10 @@ export default function Home() {
         <div
           className={cn(
             "flex items-center gap-2 text-sm",
-            isLanding ? "opacity-40 cursor-not-allowed" : "text-slate-400"
+            isLanding ? "cursor-not-allowed" : "text-slate-400"
           )}
         >
-          <span className={isLanding ? "text-slate-500" : "text-slate-400"}>Comment as</span>
+          <span className={isLanding ? "text-slate-400/70" : "text-slate-400"}>Comment as</span>
           <input
             ref={nameInputRef}
             type="text"
@@ -991,10 +991,10 @@ export default function Home() {
             onChange={(e) => setAuthorName(e.target.value)}
             disabled={isLanding}
             className={cn(
-              "w-32 rounded border px-2 py-1 text-sm outline-none transition-all placeholder:text-slate-500",
+              "w-32 rounded border px-2 py-1 text-sm outline-none transition-all",
               isLanding
-                ? "border-white/10 bg-white/5 text-slate-500 cursor-not-allowed"
-                : "border-white/20 bg-white/5 text-white focus:border-purple-500/50 focus:bg-white/10"
+                ? "border-white/15 bg-white/5 text-slate-400 cursor-not-allowed placeholder:text-slate-400/70"
+                : "border-white/20 bg-white/5 text-white placeholder:text-slate-500 focus:border-purple-500/50 focus:bg-white/10"
             )}
             placeholder="Your name"
           />
@@ -1016,7 +1016,7 @@ export default function Home() {
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-full border text-sm transition-all",
               isLanding
-                ? "border-white/10 bg-transparent text-slate-600 opacity-40 cursor-not-allowed"
+                ? "border-white/20 bg-transparent opacity-70 cursor-not-allowed"
                 : mode === "comment"
                   ? "border-purple-500 bg-purple-600/20 text-purple-300"
                   : "border-white/30 bg-transparent text-slate-400 hover:border-white/50 hover:bg-white/10 hover:text-white"
