@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { X, ImageIcon } from "lucide-react";
+import { X, ImageIcon, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -919,7 +919,7 @@ export default function Home() {
                 onChange={(e) => setLandingUrlInput(e.target.value)}
                 onKeyDown={handleLandingUrlKeyDown}
                 className="min-w-[280px] max-w-[400px] rounded border border-purple-500/60 bg-white/10 py-1 pl-2 pr-2 text-sm text-white outline-none ring-2 ring-purple-500/30 transition-all placeholder:text-slate-400 focus:border-purple-400 focus:ring-purple-400/40"
-                placeholder="Enter any demo URL"
+                placeholder="Enter demo URL"
               />
             ) : viewMode === "url" ? (
               // URL viewing mode: editable URL with clear button
@@ -998,37 +998,6 @@ export default function Home() {
             )}
             placeholder="Your name"
           />
-        </div>
-
-        {/* Comment Toggle Button - disabled on landing */}
-        <div className="relative flex items-center">
-          <button
-            type="button"
-            onClick={isLanding ? undefined : () => {
-              if (mode === "comment") {
-                setMode("browse");
-                setNewCommentPos(null);
-              } else {
-                setMode("comment");
-              }
-            }}
-            disabled={isLanding}
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full border text-sm transition-all",
-              isLanding
-                ? "border-white/20 bg-transparent opacity-70 cursor-not-allowed"
-                : mode === "comment"
-                  ? "border-purple-500 bg-purple-600/20 text-purple-300"
-                  : "border-white/30 bg-transparent text-slate-400 hover:border-white/50 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            💬
-          </button>
-          {!isLanding && comments.length > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-purple-600 px-1 text-[10px] font-medium text-white">
-              {comments.length}
-            </span>
-          )}
         </div>
       </header>
 
@@ -1405,6 +1374,39 @@ export default function Home() {
           )}
         </div>
       </div>}
+
+      {/* Floating Action Button - only when viewing */}
+      {!isLanding && (
+        <button
+          type="button"
+          onClick={() => {
+            if (isSidebarOpen) {
+              setMode("browse");
+              setSelectedPinId(null);
+              setNewCommentPos(null);
+            } else {
+              setMode("comment");
+            }
+          }}
+          className={cn(
+            "fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-150 ease-out",
+            "bg-purple-600 text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)]",
+            "hover:scale-105 hover:bg-purple-500"
+          )}
+        >
+          {isSidebarOpen ? (
+            <X className="h-6 w-6" />
+          ) : (
+            <MessageCircle className="h-6 w-6" />
+          )}
+          {/* Comment count badge */}
+          {!isSidebarOpen && comments.length > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1.5 text-xs font-bold text-purple-600">
+              {comments.length}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* Pulse Animation Keyframes */}
       <style jsx global>{`
