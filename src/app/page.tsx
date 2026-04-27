@@ -223,12 +223,12 @@ function CommentPin({
       <Popover open={isSelected} onOpenChange={handlePopoverChange}>
         <PopoverTrigger
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-full bg-[#6E5BFF] shadow-lg transition-all duration-150",
+            "flex h-7 w-7 items-center justify-center rounded-full bg-[#6E5BFF] transition-all duration-150",
             isSelected
-              ? "scale-110 ring-2 ring-[#6E5BFF]/50"
+              ? "scale-110 shadow-lg ring-2 ring-[#6E5BFF]/50"
               : isHighlighted
-                ? "scale-105"
-                : "hover:scale-110"
+                ? "scale-[1.3] shadow-[0_0_0_4px_rgba(110,91,255,0.4)]"
+                : "shadow-lg hover:scale-110"
           )}
         >
           <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
@@ -352,6 +352,10 @@ export default function Home() {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
   const [containerWidth, setContainerWidth] = useState<number>(0);
+
+  // Comment hint state
+  const [hasSeenCommentHint, setHasSeenCommentHint] = useState(false);
+  const [showCommentHint, setShowCommentHint] = useState(false);
 
   // Landing page state
   const [landingUrlInput, setLandingUrlInput] = useState("");
@@ -605,6 +609,25 @@ export default function Home() {
     window.addEventListener("keydown", handleCommentShortcut);
     return () => window.removeEventListener("keydown", handleCommentShortcut);
   }, [mode, viewMode]);
+
+  // Handle comment mode hint visibility
+  useEffect(() => {
+    if (mode === "comment" && !newCommentPos) {
+      // Entering comment mode without a comment placed
+      if (!hasSeenCommentHint) {
+        setShowCommentHint(true);
+        // Auto-dismiss after 3 seconds
+        const timer = setTimeout(() => {
+          setShowCommentHint(false);
+          setHasSeenCommentHint(true);
+        }, 3000);
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // Exiting comment mode or comment placed
+      setShowCommentHint(false);
+    }
+  }, [mode, newCommentPos, hasSeenCommentHint]);
 
   // Navigate to URL mode
   const navigateToUrl = useCallback((newUrl: string) => {
@@ -1347,8 +1370,14 @@ export default function Home() {
         )}
 
         {/* Comment mode hint overlay at bottom */}
-        {mode === "comment" && !newCommentPos && (
-          <div className="pointer-events-none fixed bottom-20 left-1/2 z-[100] -translate-x-1/2">
+        {mode === "comment" && !newCommentPos && showCommentHint && (
+          <div
+            className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 cursor-pointer transition-opacity duration-300"
+            onClick={() => {
+              setShowCommentHint(false);
+              setHasSeenCommentHint(true);
+            }}
+          >
             <div className="rounded-full border border-[#1F1F26] bg-[#1A1A22] px-4 py-2 shadow-lg">
               <p className="text-[13px] text-white">
                 Click anywhere to place a comment{" "}
@@ -1421,7 +1450,9 @@ export default function Home() {
                             "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150",
                             selectedPinId === comment.id
                               ? "bg-[#6E5BFF]"
-                              : "bg-[#1A1A22] hover:bg-[#22222C]"
+                              : hoveredPinId === comment.id
+                                ? "bg-[#22222C]"
+                                : "bg-[#1A1A22] hover:bg-[#22222C]"
                           )}
                         >
                           <p className={cn(
