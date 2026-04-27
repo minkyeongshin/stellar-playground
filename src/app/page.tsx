@@ -221,31 +221,8 @@ function CommentPin({
 
   const DRAG_THRESHOLD = 8; // px
 
-  // Handle mousedown - start tracking for potential drag
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!pinRef.current) return;
-
-    const pinRect = pinRef.current.getBoundingClientRect();
-    const grabOffsetX = e.clientX - pinRect.left;
-    const grabOffsetY = e.clientY - pinRect.top;
-
-    dragStateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      grabOffsetX,
-      grabOffsetY,
-      hasDragged: false,
-    };
-
-    // Add document listeners
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  }, []);
-
   // Handle mouse move - detect drag threshold and update position
+  // (defined first since handleMouseUp and handleMouseDown depend on it)
   const handleMouseMove = useCallback((e: MouseEvent) => {
     const state = dragStateRef.current;
     if (!state || !containerRef.current) return;
@@ -288,6 +265,7 @@ function CommentPin({
   }, [containerRef]);
 
   // Handle mouse up - save position or open popover
+  // (defined second since handleMouseDown depends on it)
   const handleMouseUp = useCallback(() => {
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
@@ -334,6 +312,31 @@ function CommentPin({
 
     dragStateRef.current = null;
   }, [handleMouseMove, comment.id, onMove, onSelect]);
+
+  // Handle mousedown - start tracking for potential drag
+  // (defined last since it depends on handleMouseMove and handleMouseUp)
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!pinRef.current) return;
+
+    const pinRect = pinRef.current.getBoundingClientRect();
+    const grabOffsetX = e.clientX - pinRect.left;
+    const grabOffsetY = e.clientY - pinRect.top;
+
+    dragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      grabOffsetX,
+      grabOffsetY,
+      hasDragged: false,
+    };
+
+    // Add document listeners
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [handleMouseMove, handleMouseUp]);
 
   // Handle Esc key to cancel drag
   useEffect(() => {
