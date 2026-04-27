@@ -1364,11 +1364,16 @@ export default function Home() {
 
             {/* Comments Sidebar */}
             <div
+              data-sidebar
               className={cn(
                 "fixed right-0 bottom-0 flex flex-col border-l border-[#1F1F26] bg-[#0F0F15] transition-all duration-300 z-40",
                 isSidebarOpen ? "w-80" : "w-0"
               )}
               style={{ top: `${NAV_HEIGHT}px` }}
+              onPointerDownCapture={(e) => {
+                // Stop propagation to prevent Popover from closing when clicking sidebar
+                e.stopPropagation();
+              }}
             >
               {isSidebarOpen && (() => {
                 // Compute filtered comments based on showResolved toggle
