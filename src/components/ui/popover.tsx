@@ -34,6 +34,17 @@ function PopoverContent({
         sideOffset={sideOffset}
         className="isolate z-50"
       >
+        <PopoverPrimitive.Backdrop
+          onPointerDown={(e) => {
+            // Prevent closing when clicking inside the comments sidebar
+            const target = e.target as HTMLElement;
+            const sidebar = document.querySelector('[data-sidebar]');
+            if (sidebar && sidebar.contains(target)) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+        />
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(

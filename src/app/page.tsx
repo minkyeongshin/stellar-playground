@@ -215,7 +215,12 @@ function CommentPin({
       onSelect(comment.id);
     } else {
       // Don't deselect if the click was inside the sidebar
-      if (sidebarClickedRef.current) {
+      // Check both the ref (for general sidebar clicks) and the DOM (as fallback)
+      const sidebar = document.querySelector('[data-sidebar]');
+      const activeEl = document.activeElement;
+      const isClickInsideSidebar = sidebarClickedRef.current || (sidebar && activeEl && sidebar.contains(activeEl));
+
+      if (isClickInsideSidebar) {
         sidebarClickedRef.current = false;
         return;
       }
