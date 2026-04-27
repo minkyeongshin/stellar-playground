@@ -201,6 +201,7 @@ function CommentPin({
   const [isDragging, setIsDragging] = useState(false);
   const [localPosition, setLocalPosition] = useState<{ x: number; y: number } | null>(null);
   const localPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const justDraggedRef = useRef(false);
   const pinRef = useRef<HTMLButtonElement>(null);
   const dragStateRef = useRef<{
     startX: number;
@@ -304,12 +305,31 @@ function CommentPin({
     const finalPosition = localPositionRef.current;
 
     if (state.hasDragged && finalPosition) {
-      // It was a drag - save new position
+      // It was a drag - save new position, DO NOT open popover
+      justDraggedRef.current = true;
+
+      // Block the click event that fires after mouseup (capture phase, once)
+      const blockClick = (e: MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+      };
+      document.addEventListener("click", blockClick, { capture: true, once: true });
+
       onMove(comment.id, finalPosition.x, finalPosition.y);
       setIsDragging(false);
       setLocalPosition(null);
-    } else {
-      // It was a click (no movement) - open popover
+
+      // Reset flag after click would have fired
+      setTimeout(() => {
+        justDraggedRef.current = false;
+      }, 100);
+
+      dragStateRef.current = null;
+      return; // Exit early - don't open popover
+    }
+
+    // It was a click (no movement) - open popover
+    if (!justDraggedRef.current) {
       onSelect(comment.id);
     }
 
