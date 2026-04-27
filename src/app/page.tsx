@@ -48,8 +48,6 @@ interface Comment {
   containerWidth?: number;
 }
 
-type SidebarFilter = "active" | "resolved" | "all";
-
 interface ImageDoc {
   id: string;
   storageUrl: string;
@@ -171,6 +169,7 @@ function CommentPin({
   onEdit,
   onDelete,
   onResolve,
+  onReopen,
 }: {
   comment: Comment;
   isSelected: boolean;
@@ -182,6 +181,7 @@ function CommentPin({
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
   onResolve: (id: string) => void;
+  onReopen: (id: string) => void;
 }) {
   // Calculate adjusted x position to keep pin anchored when container resizes
   const adjustedX = comment.containerWidth && currentContainerWidth > 0
@@ -192,6 +192,14 @@ function CommentPin({
   const [editText, setEditText] = useState(comment.text);
 
   const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen;
+  const isResolved = comment.resolved;
+
+  // Pin colors: purple for active, gray for resolved
+  const pinBgColor = isResolved ? "#4A4A52" : "#6E5BFF";
+  const pinRingColor = isResolved ? "rgba(74,74,82,0.5)" : "rgba(110,91,255,0.5)";
+  const pinHighlightShadow = isResolved
+    ? "0 0 0 4px rgba(74,74,82,0.4)"
+    : "0 0 0 4px rgba(110,91,255,0.4)";
 
   const handleSaveEdit = () => {
     if (editText.trim()) {
@@ -229,13 +237,21 @@ function CommentPin({
       <Popover open={isSelected} onOpenChange={handlePopoverChange}>
         <PopoverTrigger
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-full bg-[#6E5BFF] transition-all duration-150",
+            "flex h-7 w-7 items-center justify-center rounded-full transition-all duration-150",
             isSelected
-              ? "scale-110 shadow-lg ring-2 ring-[#6E5BFF]/50"
+              ? "scale-110 shadow-lg"
               : isHighlighted
-                ? "scale-[1.3] shadow-[0_0_0_4px_rgba(110,91,255,0.4)]"
+                ? "scale-[1.3]"
                 : "shadow-lg hover:scale-110"
           )}
+          style={{
+            backgroundColor: pinBgColor,
+            boxShadow: isSelected
+              ? `0 10px 15px -3px rgba(0,0,0,0.1), 0 0 0 2px ${pinRingColor}`
+              : isHighlighted
+                ? pinHighlightShadow
+                : undefined,
+          }}
         >
           <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
         </PopoverTrigger>
@@ -279,6 +295,12 @@ function CommentPin({
                   <span>{comment.author}</span>
                   <span>·</span>
                   <span>{formatRelativeTime(comment.createdAt)}</span>
+                  {isResolved && comment.resolvedBy && (
+                    <>
+                      <span>·</span>
+                      <span className="text-[#5DCAA5]">resolved by {comment.resolvedBy}</span>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2">
@@ -288,15 +310,27 @@ function CommentPin({
                 >
                   Edit
                 </button>
-                <button
-                  onClick={() => {
-                    onResolve(comment.id);
-                    onSelect(null);
-                  }}
-                  className="rounded-full bg-[#1A2F26] px-3 py-1.5 text-xs font-medium text-[#5DCAA5] transition-all hover:bg-[#224036]"
-                >
-                  Resolve
-                </button>
+                {isResolved ? (
+                  <button
+                    onClick={() => {
+                      onReopen(comment.id);
+                      onSelect(null);
+                    }}
+                    className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
+                  >
+                    Reopen
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onResolve(comment.id);
+                      onSelect(null);
+                    }}
+                    className="rounded-full bg-[#1A2F26] px-3 py-1.5 text-xs font-medium text-[#5DCAA5] transition-all hover:bg-[#224036]"
+                  >
+                    Resolve
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     onDelete(comment.id);
@@ -390,8 +424,8 @@ export default function Home() {
   const [hasSeenCommentHint, setHasSeenCommentHint] = useState(false);
   const [showCommentHint, setShowCommentHint] = useState(false);
 
-  // Sidebar filter state
-  const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>("active");
+  // Sidebar filter state - true = show resolved, false = show active
+  const [showResolved, setShowResolved] = useState(false);
 
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
   const isNameValid = authorName.trim().length > 0;
@@ -1081,24 +1115,23 @@ export default function Home() {
                     onMouseLeave={() => setCursorPos(null)}
                   />
 
-                  {/* Comment Pins - only show active (unresolved) pins */}
-                  {comments
-                    .filter((comment) => !comment.resolved)
-                    .map((comment) => (
-                      <CommentPin
-                        key={comment.id}
-                        comment={comment}
-                        isSelected={selectedPinId === comment.id}
-                        isHighlighted={hoveredPinId === comment.id}
-                        isSidebarOpen={isSidebarOpen}
-                        currentContainerWidth={containerWidth}
-                        onSelect={setSelectedPinId}
-                        onHover={setHoveredPinId}
-                        onEdit={handleEditComment}
-                        onDelete={handleDeleteComment}
-                        onResolve={handleResolveComment}
-                      />
-                    ))}
+                  {/* Comment Pins - show both active (purple) and resolved (gray) */}
+                  {comments.map((comment) => (
+                    <CommentPin
+                      key={comment.id}
+                      comment={comment}
+                      isSelected={selectedPinId === comment.id}
+                      isHighlighted={hoveredPinId === comment.id}
+                      isSidebarOpen={isSidebarOpen}
+                      currentContainerWidth={containerWidth}
+                      onSelect={setSelectedPinId}
+                      onHover={setHoveredPinId}
+                      onEdit={handleEditComment}
+                      onDelete={handleDeleteComment}
+                      onResolve={handleResolveComment}
+                      onReopen={handleReopenComment}
+                    />
+                  ))}
 
                   {/* New Comment Popup */}
                   {newCommentPos && (
@@ -1208,24 +1241,23 @@ export default function Home() {
                         onMouseLeave={() => setCursorPos(null)}
                       />
 
-                      {/* Comment Pins - only show active (unresolved) pins */}
-                      {comments
-                        .filter((comment) => !comment.resolved)
-                        .map((comment) => (
-                          <CommentPin
-                            key={comment.id}
-                            comment={comment}
-                            isSelected={selectedPinId === comment.id}
-                            isHighlighted={hoveredPinId === comment.id}
-                            isSidebarOpen={isSidebarOpen}
-                            currentContainerWidth={containerWidth}
-                            onSelect={setSelectedPinId}
-                            onHover={setHoveredPinId}
-                            onEdit={handleEditComment}
-                            onDelete={handleDeleteComment}
-                            onResolve={handleResolveComment}
-                          />
-                        ))}
+                      {/* Comment Pins - show both active (purple) and resolved (gray) */}
+                      {comments.map((comment) => (
+                        <CommentPin
+                          key={comment.id}
+                          comment={comment}
+                          isSelected={selectedPinId === comment.id}
+                          isHighlighted={hoveredPinId === comment.id}
+                          isSidebarOpen={isSidebarOpen}
+                          currentContainerWidth={containerWidth}
+                          onSelect={setSelectedPinId}
+                          onHover={setHoveredPinId}
+                          onEdit={handleEditComment}
+                          onDelete={handleDeleteComment}
+                          onResolve={handleResolveComment}
+                          onReopen={handleReopenComment}
+                        />
+                      ))}
 
                       {/* New Comment Popup */}
                       {newCommentPos && (
@@ -1339,46 +1371,22 @@ export default function Home() {
               style={{ top: `${NAV_HEIGHT}px` }}
             >
               {isSidebarOpen && (() => {
-                // Compute filtered comments based on sidebarFilter
+                // Compute filtered comments based on showResolved toggle
                 const activeComments = comments.filter((c) => !c.resolved);
                 const resolvedComments = comments.filter((c) => c.resolved);
 
-                // Filter logic:
-                // - "active": only active comments
-                // - "resolved" / "all": both active AND resolved (resolved shown with ghost styling)
-                const filteredComments =
-                  sidebarFilter === "active"
-                    ? activeComments
-                    : [...comments]; // "resolved" and "all" show both
+                // Filter logic: show EITHER active OR resolved, never both
+                const filteredComments = showResolved ? resolvedComments : activeComments;
 
-                // Header count based on filter
-                const headerLabel =
-                  sidebarFilter === "active"
-                    ? "ACTIVE"
-                    : sidebarFilter === "resolved"
-                      ? "RESOLVED"
-                      : "ALL";
-                const headerCount =
-                  sidebarFilter === "active"
-                    ? activeComments.length
-                    : sidebarFilter === "resolved"
-                      ? resolvedComments.length
-                      : comments.length;
+                // Header label and count
+                const headerLabel = showResolved ? "RESOLVED" : "COMMENTS";
+                const headerCount = filteredComments.length;
 
                 // Empty state logic
-                const showEmptyState =
-                  sidebarFilter === "active"
-                    ? activeComments.length === 0
-                    : sidebarFilter === "resolved"
-                      ? resolvedComments.length === 0
-                      : comments.length === 0;
-
-                const emptyStateText =
-                  sidebarFilter === "active"
-                    ? "No active comments. Press C to add one."
-                    : sidebarFilter === "resolved"
-                      ? "No resolved comments yet."
-                      : "No comments yet. Press C to add one.";
+                const showEmptyState = filteredComments.length === 0;
+                const emptyStateText = showResolved
+                  ? "No resolved comments yet."
+                  : "No comments yet. Press C to add one.";
 
                 return (
                   <>
@@ -1399,22 +1407,19 @@ export default function Home() {
                       </button>
                     </div>
 
-                    {/* Filter pills */}
+                    {/* Single Resolved toggle button */}
                     <div className="flex gap-1.5 px-4 pb-3">
-                      {(["active", "resolved", "all"] as SidebarFilter[]).map((filter) => (
-                        <button
-                          key={filter}
-                          onClick={() => setSidebarFilter(filter)}
-                          className={cn(
-                            "rounded-full px-2.5 py-1 text-[12px] transition-colors",
-                            sidebarFilter === filter
-                              ? "bg-[#22222C] text-white"
-                              : "bg-transparent text-[#6B6B75] hover:text-white"
-                          )}
-                        >
-                          {filter.charAt(0).toUpperCase() + filter.slice(1)}
-                        </button>
-                      ))}
+                      <button
+                        onClick={() => setShowResolved(!showResolved)}
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[12px] transition-colors",
+                          showResolved
+                            ? "bg-[#22222C] text-white"
+                            : "bg-transparent text-[#6B6B75] hover:text-white"
+                        )}
+                      >
+                        Resolved
+                      </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1439,32 +1444,22 @@ export default function Home() {
                               const isSelected = selectedPinId === comment.id;
                               const isHovered = hoveredPinId === comment.id;
 
-                              // Ghost styling for resolved comments
+                              // Resolved comment styling (muted, no strikethrough)
                               if (isResolved) {
                                 return (
                                   <div
                                     key={comment.id}
-                                    onClick={() => {
-                                      // For resolved comments, we can still select them to open popover
-                                      setSelectedPinId(comment.id);
-                                    }}
+                                    onClick={() => setSelectedPinId(comment.id)}
+                                    onMouseEnter={() => setHoveredPinId(comment.id)}
+                                    onMouseLeave={() => setHoveredPinId(null)}
                                     className={cn(
                                       "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150 bg-[#1A1A22]",
-                                      isHovered ? "opacity-75" : "opacity-50"
+                                      isSelected ? "opacity-100" : isHovered ? "opacity-85" : "opacity-70"
                                     )}
-                                    onMouseEnter={() => {
-                                      // Don't highlight pin for resolved (no pin exists)
-                                    }}
-                                    onMouseLeave={() => {
-                                      // Don't highlight pin for resolved
-                                    }}
                                   >
-                                    <div className="flex items-start justify-between gap-2">
-                                      <p className="text-[13px] font-medium leading-relaxed text-[#6B6B75] line-through flex-1">
-                                        {comment.text}
-                                      </p>
-                                      <Check className="h-3 w-3 text-[#5DCAA5] shrink-0 mt-0.5" />
-                                    </div>
+                                    <p className="text-[13px] font-medium leading-relaxed text-[#6B6B75]">
+                                      {comment.text}
+                                    </p>
                                     <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6B6B75] flex-wrap">
                                       <span>{comment.author}</span>
                                       <span>·</span>
@@ -1522,62 +1517,6 @@ export default function Home() {
                         </div>
                       )}
                     </div>
-
-                    {/* Popover for resolved comments when selected */}
-                    {selectedPinId && comments.find((c) => c.id === selectedPinId)?.resolved && (
-                      <div className="absolute bottom-4 left-4 right-4 z-50">
-                        <div className="rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3 shadow-xl">
-                          {(() => {
-                            const resolvedComment = comments.find((c) => c.id === selectedPinId);
-                            if (!resolvedComment) return null;
-                            return (
-                              <div className="space-y-3">
-                                <div>
-                                  <p className="text-sm font-medium text-white">{resolvedComment.text}</p>
-                                  <div className="mt-1 flex items-center gap-2 text-xs text-[#6B6B75]">
-                                    <span>{resolvedComment.author}</span>
-                                    <span>·</span>
-                                    <span>{formatRelativeTime(resolvedComment.createdAt)}</span>
-                                    {resolvedComment.resolvedBy && (
-                                      <>
-                                        <span>·</span>
-                                        <span className="text-[#5DCAA5]">resolved by {resolvedComment.resolvedBy}</span>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => {
-                                      handleReopenComment(resolvedComment.id);
-                                      setSelectedPinId(null);
-                                    }}
-                                    className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
-                                  >
-                                    Reopen
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      handleDeleteComment(resolvedComment.id);
-                                      setSelectedPinId(null);
-                                    }}
-                                    className="rounded-full bg-[#3A1F22] px-3 py-1.5 text-xs font-medium text-[#F09595] transition-all hover:bg-[#4A2A2D]"
-                                  >
-                                    Delete
-                                  </button>
-                                  <button
-                                    onClick={() => setSelectedPinId(null)}
-                                    className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-[#6B6B75] transition-all hover:bg-[#2A2A33]"
-                                  >
-                                    Close
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    )}
                   </>
                 );
               })()}
