@@ -200,6 +200,7 @@ function CommentPin({
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
   const [localPosition, setLocalPosition] = useState<{ x: number; y: number } | null>(null);
+  const localPositionRef = useRef<{ x: number; y: number } | null>(null);
   const pinRef = useRef<HTMLButtonElement>(null);
   const dragStateRef = useRef<{
     startX: number;
@@ -208,6 +209,11 @@ function CommentPin({
     grabOffsetY: number;
     hasDragged: boolean;
   } | null>(null);
+
+  // Keep ref in sync with state (fixes stale closure in event handlers)
+  useEffect(() => {
+    localPositionRef.current = localPosition;
+  }, [localPosition]);
 
   const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen && !isDragging;
   const isResolved = comment.resolved;
@@ -294,9 +300,12 @@ function CommentPin({
     const state = dragStateRef.current;
     if (!state) return;
 
-    if (state.hasDragged && localPosition) {
+    // Read from ref to get latest position (avoids stale closure)
+    const finalPosition = localPositionRef.current;
+
+    if (state.hasDragged && finalPosition) {
       // It was a drag - save new position
-      onMove(comment.id, localPosition.x, localPosition.y);
+      onMove(comment.id, finalPosition.x, finalPosition.y);
       setIsDragging(false);
       setLocalPosition(null);
     } else {
@@ -305,7 +314,7 @@ function CommentPin({
     }
 
     dragStateRef.current = null;
-  }, [handleMouseMove, localPosition, comment.id, onMove, onSelect]);
+  }, [handleMouseMove, comment.id, onMove, onSelect]);
 
   // Handle Esc key to cancel drag
   useEffect(() => {
