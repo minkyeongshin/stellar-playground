@@ -170,7 +170,9 @@ function CommentPin({
   onDelete,
   onResolve,
   onReopen,
+  onMove,
   sidebarClickedRef,
+  containerRef,
 }: {
   comment: Comment;
   isSelected: boolean;
@@ -183,7 +185,9 @@ function CommentPin({
   onDelete: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
+  onMove: (id: string, x: number, y: number) => void;
   sidebarClickedRef: React.RefObject<boolean | null>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   // Calculate adjusted x position to keep pin anchored when container resizes
   const adjustedX = comment.containerWidth && currentContainerWidth > 0
@@ -193,8 +197,80 @@ function CommentPin({
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
 
-  const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen;
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; pinX: number; pinY: number } | null>(null);
+
+  const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen && !isDragging;
   const isResolved = comment.resolved;
+
+  // Drag handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      pinX: dragPosition?.x ?? adjustedX,
+      pinY: dragPosition?.y ?? comment.y,
+    };
+  };
+
+  useEffect(() => {
+    if (!dragStartRef.current) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current || !containerRef.current) return;
+
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Only start dragging after 5px movement
+      if (!isDragging && distance > 5) {
+        setIsDragging(true);
+      }
+
+      if (isDragging || distance > 5) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
+        const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+
+        // Clamp to 0-100%
+        setDragPosition({
+          x: Math.max(0, Math.min(100, xPercent)),
+          y: Math.max(0, Math.min(100, yPercent)),
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isDragging && dragPosition) {
+        // Save new position
+        onMove(comment.id, dragPosition.x, dragPosition.y);
+      }
+      setIsDragging(false);
+      dragStartRef.current = null;
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, dragPosition, comment.id, onMove, containerRef, adjustedX, comment.y]);
+
+  // Reset drag position when comment position changes (e.g., from Firestore update)
+  useEffect(() => {
+    setDragPosition(null);
+  }, [comment.x, comment.y]);
+
+  // Current display position (drag position or actual position)
+  const displayX = dragPosition?.x ?? adjustedX;
+  const displayY = dragPosition?.y ?? comment.y;
 
   // Pin colors: purple for active, gray for resolved
   const pinBgColor = isResolved ? "#4A4A52" : "#6E5BFF";
@@ -231,39 +307,53 @@ function CommentPin({
 
   return (
     <div
-      className="pointer-events-auto absolute z-10"
+      className={cn(
+        "pointer-events-auto absolute z-10",
+        isDragging ? "z-50" : "z-10"
+      )}
       style={{
-        left: `${adjustedX}%`,
-        top: `${comment.y}%`,
+        left: `${displayX}%`,
+        top: `${displayY}%`,
         transform: "translate(-50%, -50%)",
+        transition: isDragging ? "none" : "left 150ms ease, top 150ms ease",
       }}
       onMouseEnter={() => {
-        setIsLocalHover(true);
-        onHover(comment.id);
+        if (!isDragging) {
+          setIsLocalHover(true);
+          onHover(comment.id);
+        }
       }}
       onMouseLeave={() => {
-        setIsLocalHover(false);
-        onHover(null);
+        if (!isDragging) {
+          setIsLocalHover(false);
+          onHover(null);
+        }
       }}
     >
-      <Popover open={isSelected} onOpenChange={handlePopoverChange}>
+      <Popover open={isSelected && !isDragging} onOpenChange={handlePopoverChange}>
         <PopoverTrigger
           className={cn(
             "flex h-7 w-7 items-center justify-center rounded-full transition-all duration-150",
-            isSelected
-              ? "scale-110 shadow-lg"
-              : isHighlighted
-                ? "scale-[1.3]"
-                : "shadow-lg hover:scale-110"
+            isDragging
+              ? "scale-110 opacity-80"
+              : isSelected
+                ? "scale-110 shadow-lg"
+                : isHighlighted
+                  ? "scale-[1.3]"
+                  : "shadow-lg hover:scale-110"
           )}
           style={{
             backgroundColor: pinBgColor,
-            boxShadow: isSelected
-              ? `0 10px 15px -3px rgba(0,0,0,0.1), 0 0 0 2px ${pinRingColor}`
-              : isHighlighted
-                ? pinHighlightShadow
-                : undefined,
+            boxShadow: isDragging
+              ? "0 4px 12px rgba(0, 0, 0, 0.4)"
+              : isSelected
+                ? `0 10px 15px -3px rgba(0,0,0,0.1), 0 0 0 2px ${pinRingColor}`
+                : isHighlighted
+                  ? pinHighlightShadow
+                  : undefined,
+            cursor: isDragging ? "grabbing" : "grab",
           }}
+          onMouseDown={handleDragStart}
         >
           <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
         </PopoverTrigger>
@@ -955,6 +1045,15 @@ export default function Home() {
     }
   };
 
+  // Move comment (drag to new position)
+  const handleMoveComment = async (id: string, x: number, y: number) => {
+    try {
+      await updateDoc(doc(db, "comments", id), { x, y, containerWidth: containerWidth });
+    } catch (error) {
+      console.error("Error moving comment:", error);
+    }
+  };
+
   // Delete comment
   const handleDeleteComment = async (id: string) => {
     try {
@@ -1149,7 +1248,9 @@ export default function Home() {
                         onDelete={handleDeleteComment}
                         onResolve={handleResolveComment}
                         onReopen={handleReopenComment}
+                        onMove={handleMoveComment}
                         sidebarClickedRef={sidebarClickedRef}
+                        containerRef={containerRef}
                       />
                     ))}
 
@@ -1278,7 +1379,9 @@ export default function Home() {
                             onDelete={handleDeleteComment}
                             onResolve={handleResolveComment}
                             onReopen={handleReopenComment}
+                            onMove={handleMoveComment}
                             sidebarClickedRef={sidebarClickedRef}
+                            containerRef={imageContainerRef}
                           />
                         ))}
 
