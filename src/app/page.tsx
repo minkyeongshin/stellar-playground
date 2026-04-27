@@ -436,6 +436,16 @@ export default function Home() {
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
   const isNameValid = authorName.trim().length > 0;
 
+  // Reset filter to default (active) when sidebar opens
+  const prevSidebarOpen = useRef(false);
+  useEffect(() => {
+    if (isSidebarOpen && !prevSidebarOpen.current) {
+      // Sidebar just opened - reset to active filter
+      setShowResolved(false);
+    }
+    prevSidebarOpen.current = isSidebarOpen;
+  }, [isSidebarOpen]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const newCommentInputRef = useRef<HTMLInputElement>(null);
