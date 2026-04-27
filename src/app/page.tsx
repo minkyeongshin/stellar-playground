@@ -901,57 +901,127 @@ export default function Home() {
     }
   };
 
-  // Render landing page with Studio styling
-  if (isLanding) {
-    return (
-      <div className="flex min-h-screen flex-col bg-[#0A0A0F]">
-        {/* Header - same as viewing page */}
-        <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F] px-4 py-3">
-          {/* Logo + Badge */}
-          <div className="flex items-center gap-2">
-            <Image
-              src="https://design-system.stellar.org/img/stellar.svg"
-              alt="Stellar"
-              width={100}
-              height={26}
-              className="h-[26px] w-auto invert brightness-0"
-              priority
-            />
-            <span className="rounded-full bg-[#1A1A22] px-2.5 py-1 text-[11px] font-medium text-white">
-              Quick
-            </span>
-          </div>
+  // Shared header component - renders identically on landing and viewing
+  const renderHeader = () => (
+    <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F] px-4 py-3">
+      {/* Logo + Badge */}
+      <button
+        onClick={isLanding ? undefined : goToLanding}
+        className={cn(
+          "flex items-center gap-2",
+          !isLanding && "transition-opacity hover:opacity-80"
+        )}
+        disabled={isLanding}
+      >
+        <Image
+          src="https://design-system.stellar.org/img/stellar.svg"
+          alt="Stellar"
+          width={100}
+          height={26}
+          className="h-[26px] w-auto invert brightness-0"
+          priority
+        />
+        <span className="rounded-full bg-[#1A1A22] px-2.5 py-1 text-[11px] font-medium text-white">
+          Quick
+        </span>
+      </button>
 
-          {/* Viewing: URL Input */}
-          <div className="flex items-center gap-2">
-            <span className="mr-1 text-[13px] text-[#6B6B75]">Viewing:</span>
-            <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-3.5">
+      {/* Viewing: URL Input */}
+      <div className="flex items-center gap-2">
+        <span className="mr-1 text-[13px] text-[#6B6B75]">Viewing:</span>
+        <div className="relative">
+          {isLanding ? (
+            // Landing: empty URL input
+            <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
               <input
                 ref={landingUrlInputRef}
                 type="text"
                 value={landingUrlInput}
                 onChange={(e) => setLandingUrlInput(e.target.value)}
                 onKeyDown={handleLandingUrlKeyDown}
-                className="min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-0"
+                className="min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75]"
                 placeholder="Enter any demo URL"
               />
+              {/* Invisible placeholder for close button to maintain consistent width */}
+              <div className="w-[26px]" />
             </div>
-          </div>
+          ) : viewMode === "url" ? (
+            // URL viewing mode: pill chip with URL
+            <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
+              <input
+                ref={urlInputRef}
+                type="text"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={handleUrlKeyDown}
+                onFocus={() => setIsUrlFocused(true)}
+                onBlur={handleUrlBlur}
+                className={cn(
+                  "min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75]",
+                  isUrlFocused && "ring-0"
+                )}
+                placeholder="Enter URL..."
+              />
+              {urlInput && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    goToLanding();
+                  }}
+                  className="rounded-full p-1.5 text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {/* Placeholder when no close button to maintain width */}
+              {!urlInput && <div className="w-[26px]" />}
+            </div>
+          ) : viewMode === "image" && imageDoc ? (
+            // Image viewing mode: pill chip with filename
+            <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
+              <ImageIcon className="h-4 w-4 text-[#6B6B75]" />
+              <span className="text-[13px] text-white">{imageDoc.fileName}</span>
+              <button
+                type="button"
+                onClick={goToLanding}
+                className="rounded-full p-1.5 text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            // Image loading state
+            <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
+              <span className="text-[13px] text-[#6B6B75]">Loading...</span>
+              <div className="w-[26px]" />
+            </div>
+          )}
+        </div>
+      </div>
 
-          <div className="flex-1" />
+      <div className="flex-1" />
 
-          {/* Comment as [name input] */}
-          <div className="flex items-center gap-2 text-[13px] text-[#6B6B75]">
-            <span>Comment as</span>
-            <input
-              type="text"
-              value={authorName}
-              onChange={(e) => setAuthorName(e.target.value)}
-              className="w-32 rounded-full border-none bg-[#1A1A22] px-3.5 py-1.5 text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
-              placeholder="Your name"
-            />
-          </div>
-        </header>
+      {/* Comment as [name input] */}
+      <div className="flex items-center gap-2 text-[13px] text-[#6B6B75]">
+        <span>Comment as</span>
+        <input
+          ref={isLanding ? undefined : nameInputRef}
+          type="text"
+          value={authorName}
+          onChange={(e) => setAuthorName(e.target.value)}
+          className="w-32 rounded-full border-none bg-[#1A1A22] px-3.5 py-1.5 text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
+          placeholder="Your name"
+        />
+      </div>
+    </header>
+  );
+
+  // Render landing page
+  if (isLanding) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#0A0A0F]">
+        {renderHeader()}
 
         {/* Body - centered muted text */}
         <div className="flex flex-1 items-center justify-center">
@@ -974,95 +1044,7 @@ export default function Home() {
   // Render viewing page
   return (
     <div className="flex min-h-screen flex-col bg-[#0A0A0F]">
-      {/* Header for viewing page */}
-      <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F] px-4 py-3">
-        {/* Logo + Badge */}
-        <button
-          onClick={goToLanding}
-          className="flex items-center gap-2 transition-opacity hover:opacity-80"
-        >
-          <Image
-            src="https://design-system.stellar.org/img/stellar.svg"
-            alt="Stellar"
-            width={100}
-            height={26}
-            className="h-[26px] w-auto invert brightness-0"
-            priority
-          />
-          <span className="rounded-full bg-[#1A1A22] px-2.5 py-1 text-[11px] font-medium text-white">
-            Quick
-          </span>
-        </button>
-
-        {/* Viewing: URL Input */}
-        <div className="flex items-center gap-2">
-          <span className="mr-1 text-[13px] text-[#6B6B75]">Viewing:</span>
-          <div className="relative">
-            {viewMode === "url" ? (
-              // URL viewing mode: pill chip with URL
-              <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
-                <input
-                  ref={urlInputRef}
-                  type="text"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  onKeyDown={handleUrlKeyDown}
-                  onFocus={() => setIsUrlFocused(true)}
-                  onBlur={handleUrlBlur}
-                  className={cn(
-                    "min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75]",
-                    isUrlFocused && "ring-0"
-                  )}
-                  placeholder="Enter URL..."
-                />
-                {urlInput && (
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      goToLanding();
-                    }}
-                    className="rounded-full p-1.5 text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            ) : viewMode === "image" && imageDoc ? (
-              // Image viewing mode: pill chip with filename
-              <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
-                <ImageIcon className="h-4 w-4 text-[#6B6B75]" />
-                <span className="text-[13px] text-white">{imageDoc.fileName}</span>
-                <button
-                  type="button"
-                  onClick={goToLanding}
-                  className="rounded-full p-1.5 text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              // Image loading state
-              <span className="text-[13px] text-[#6B6B75]">Loading...</span>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1" />
-
-        {/* Comment as [name input] */}
-        <div className="flex items-center gap-2 text-[13px] text-[#6B6B75]">
-          <span>Comment as</span>
-          <input
-            ref={nameInputRef}
-            type="text"
-            value={authorName}
-            onChange={(e) => setAuthorName(e.target.value)}
-            className="w-32 rounded-full border-none bg-[#1A1A22] px-3.5 py-1.5 text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
-            placeholder="Your name"
-          />
-        </div>
-      </header>
+      {renderHeader()}
 
       {/* Main Content Area with Sidebar */}
       <div className="flex">
