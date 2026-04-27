@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle, X, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -43,8 +43,12 @@ interface Comment {
   author: string;
   createdAt: string;
   resolved: boolean;
+  resolvedBy?: string;
+  resolvedAt?: string;
   containerWidth?: number;
 }
+
+type SidebarFilter = "active" | "resolved" | "all";
 
 interface ImageDoc {
   id: string;
@@ -166,6 +170,7 @@ function CommentPin({
   onHover,
   onEdit,
   onDelete,
+  onResolve,
 }: {
   comment: Comment;
   isSelected: boolean;
@@ -176,6 +181,7 @@ function CommentPin({
   onHover: (id: string | null) => void;
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
+  onResolve: (id: string) => void;
 }) {
   // Calculate adjusted x position to keep pin anchored when container resizes
   const adjustedX = comment.containerWidth && currentContainerWidth > 0
@@ -284,6 +290,15 @@ function CommentPin({
                 </button>
                 <button
                   onClick={() => {
+                    onResolve(comment.id);
+                    onSelect(null);
+                  }}
+                  className="rounded-full bg-[#1A2F26] px-3 py-1.5 text-xs font-medium text-[#5DCAA5] transition-all hover:bg-[#224036]"
+                >
+                  Resolve
+                </button>
+                <button
+                  onClick={() => {
                     onDelete(comment.id);
                     onSelect(null);
                   }}
@@ -374,6 +389,9 @@ export default function Home() {
   // Comment hint state
   const [hasSeenCommentHint, setHasSeenCommentHint] = useState(false);
   const [showCommentHint, setShowCommentHint] = useState(false);
+
+  // Sidebar filter state
+  const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>("active");
 
   const isSidebarOpen = mode === "comment" || selectedPinId !== null;
   const isNameValid = authorName.trim().length > 0;
@@ -532,6 +550,10 @@ export default function Home() {
               ? data.createdAt.toDate().toISOString()
               : data.createdAt || new Date().toISOString(),
             resolved: data.resolved || false,
+            resolvedBy: data.resolvedBy,
+            resolvedAt: data.resolvedAt instanceof Timestamp
+              ? data.resolvedAt.toDate().toISOString()
+              : data.resolvedAt,
             containerWidth: data.containerWidth,
           };
         });
@@ -890,6 +912,32 @@ export default function Home() {
     }
   };
 
+  // Resolve comment
+  const handleResolveComment = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "comments", id), {
+        resolved: true,
+        resolvedBy: authorName.trim() || "Anonymous",
+        resolvedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error("Error resolving comment:", error);
+    }
+  };
+
+  // Reopen comment
+  const handleReopenComment = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "comments", id), {
+        resolved: false,
+        resolvedBy: null,
+        resolvedAt: null,
+      });
+    } catch (error) {
+      console.error("Error reopening comment:", error);
+    }
+  };
+
   // Go back to landing
   const goToLanding = useCallback(() => {
     setViewMode("landing");
@@ -1033,21 +1081,24 @@ export default function Home() {
                     onMouseLeave={() => setCursorPos(null)}
                   />
 
-                  {/* Comment Pins */}
-                  {comments.map((comment) => (
-                    <CommentPin
-                      key={comment.id}
-                      comment={comment}
-                      isSelected={selectedPinId === comment.id}
-                      isHighlighted={hoveredPinId === comment.id}
-                      isSidebarOpen={isSidebarOpen}
-                      currentContainerWidth={containerWidth}
-                      onSelect={setSelectedPinId}
-                      onHover={setHoveredPinId}
-                      onEdit={handleEditComment}
-                      onDelete={handleDeleteComment}
-                    />
-                  ))}
+                  {/* Comment Pins - only show active (unresolved) pins */}
+                  {comments
+                    .filter((comment) => !comment.resolved)
+                    .map((comment) => (
+                      <CommentPin
+                        key={comment.id}
+                        comment={comment}
+                        isSelected={selectedPinId === comment.id}
+                        isHighlighted={hoveredPinId === comment.id}
+                        isSidebarOpen={isSidebarOpen}
+                        currentContainerWidth={containerWidth}
+                        onSelect={setSelectedPinId}
+                        onHover={setHoveredPinId}
+                        onEdit={handleEditComment}
+                        onDelete={handleDeleteComment}
+                        onResolve={handleResolveComment}
+                      />
+                    ))}
 
                   {/* New Comment Popup */}
                   {newCommentPos && (
@@ -1157,21 +1208,24 @@ export default function Home() {
                         onMouseLeave={() => setCursorPos(null)}
                       />
 
-                      {/* Comment Pins */}
-                      {comments.map((comment) => (
-                        <CommentPin
-                          key={comment.id}
-                          comment={comment}
-                          isSelected={selectedPinId === comment.id}
-                          isHighlighted={hoveredPinId === comment.id}
-                          isSidebarOpen={isSidebarOpen}
-                          currentContainerWidth={containerWidth}
-                          onSelect={setSelectedPinId}
-                          onHover={setHoveredPinId}
-                          onEdit={handleEditComment}
-                          onDelete={handleDeleteComment}
-                        />
-                      ))}
+                      {/* Comment Pins - only show active (unresolved) pins */}
+                      {comments
+                        .filter((comment) => !comment.resolved)
+                        .map((comment) => (
+                          <CommentPin
+                            key={comment.id}
+                            comment={comment}
+                            isSelected={selectedPinId === comment.id}
+                            isHighlighted={hoveredPinId === comment.id}
+                            isSidebarOpen={isSidebarOpen}
+                            currentContainerWidth={containerWidth}
+                            onSelect={setSelectedPinId}
+                            onHover={setHoveredPinId}
+                            onEdit={handleEditComment}
+                            onDelete={handleDeleteComment}
+                            onResolve={handleResolveComment}
+                          />
+                        ))}
 
                       {/* New Comment Popup */}
                       {newCommentPos && (
@@ -1284,83 +1338,249 @@ export default function Home() {
               )}
               style={{ top: `${NAV_HEIGHT}px` }}
             >
-              {isSidebarOpen && (
-                <>
-                  <div className="flex items-center justify-between px-4 py-4">
-                    <h2 className="text-[11px] font-medium uppercase tracking-[1px] text-[#6B6B75]">
-                      Comments{comments.length > 0 && ` · ${comments.length}`}
-                    </h2>
-                    <button
-                      onClick={() => {
-                        setMode("browse");
-                        setSelectedPinId(null);
-                        setNewCommentPos(null);
-                      }}
-                      className="text-[#6B6B75] transition-colors hover:text-white"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
+              {isSidebarOpen && (() => {
+                // Compute filtered comments based on sidebarFilter
+                const activeComments = comments.filter((c) => !c.resolved);
+                const resolvedComments = comments.filter((c) => c.resolved);
 
-                  <div className="flex-1 overflow-y-auto px-4 pb-4">
-                    {isLoadingComments ? (
-                      <div className="flex h-full items-center justify-center">
-                        <p className="text-center text-[13px] text-[#6B6B75]">
-                          Loading comments...
-                        </p>
-                      </div>
-                    ) : comments.length === 0 ? (
-                      <div className="flex h-full flex-col items-center justify-center">
-                        <MessageCircle className="mb-4 h-12 w-12 text-[#4A4A52]" />
-                        <h3 className="mb-2 text-[13px] font-medium text-white">No comments yet</h3>
-                        <p className="text-center text-xs text-[#6B6B75]">
-                          Press{" "}
-                          <kbd className="inline-flex items-center justify-center rounded bg-[#1A1A22] px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
-                            C
-                          </kbd>{" "}
-                          to start commenting
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {[...comments]
-                          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                          .map((comment) => (
-                            <div
-                              key={comment.id}
-                              onClick={() => setSelectedPinId(comment.id)}
-                              onMouseEnter={() => setHoveredPinId(comment.id)}
-                              onMouseLeave={() => setHoveredPinId(null)}
-                              className={cn(
-                                "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150",
-                                selectedPinId === comment.id
-                                  ? "bg-[#6E5BFF]"
-                                  : hoveredPinId === comment.id
-                                    ? "bg-[#22222C]"
-                                    : "bg-[#1A1A22] hover:bg-[#22222C]"
-                              )}
-                            >
-                              <p className={cn(
-                                "text-[13px] font-medium leading-relaxed",
-                                selectedPinId === comment.id ? "text-white" : "text-white"
-                              )}>
-                                {comment.text}
-                              </p>
-                              <div className={cn(
-                                "mt-1 flex items-center gap-2 text-[11px]",
-                                selectedPinId === comment.id ? "text-[#D6D0FF]" : "text-[#6B6B75]"
-                              )}>
-                                <span>{comment.author}</span>
-                                <span>·</span>
-                                <span>{formatRelativeTime(comment.createdAt)}</span>
+                // Filter logic:
+                // - "active": only active comments
+                // - "resolved" / "all": both active AND resolved (resolved shown with ghost styling)
+                const filteredComments =
+                  sidebarFilter === "active"
+                    ? activeComments
+                    : [...comments]; // "resolved" and "all" show both
+
+                // Header count based on filter
+                const headerLabel =
+                  sidebarFilter === "active"
+                    ? "ACTIVE"
+                    : sidebarFilter === "resolved"
+                      ? "RESOLVED"
+                      : "ALL";
+                const headerCount =
+                  sidebarFilter === "active"
+                    ? activeComments.length
+                    : sidebarFilter === "resolved"
+                      ? resolvedComments.length
+                      : comments.length;
+
+                // Empty state logic
+                const showEmptyState =
+                  sidebarFilter === "active"
+                    ? activeComments.length === 0
+                    : sidebarFilter === "resolved"
+                      ? resolvedComments.length === 0
+                      : comments.length === 0;
+
+                const emptyStateText =
+                  sidebarFilter === "active"
+                    ? "No active comments. Press C to add one."
+                    : sidebarFilter === "resolved"
+                      ? "No resolved comments yet."
+                      : "No comments yet. Press C to add one.";
+
+                return (
+                  <>
+                    {/* Header with close button */}
+                    <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                      <h2 className="text-[11px] font-medium uppercase tracking-[1px] text-[#6B6B75]">
+                        {headerLabel}{headerCount > 0 && ` · ${headerCount}`}
+                      </h2>
+                      <button
+                        onClick={() => {
+                          setMode("browse");
+                          setSelectedPinId(null);
+                          setNewCommentPos(null);
+                        }}
+                        className="text-[#6B6B75] transition-colors hover:text-white"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Filter pills */}
+                    <div className="flex gap-1.5 px-4 pb-3">
+                      {(["active", "resolved", "all"] as SidebarFilter[]).map((filter) => (
+                        <button
+                          key={filter}
+                          onClick={() => setSidebarFilter(filter)}
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-[12px] transition-colors",
+                            sidebarFilter === filter
+                              ? "bg-[#22222C] text-white"
+                              : "bg-transparent text-[#6B6B75] hover:text-white"
+                          )}
+                        >
+                          {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-4 pb-4">
+                      {isLoadingComments ? (
+                        <div className="flex h-full items-center justify-center">
+                          <p className="text-center text-[13px] text-[#6B6B75]">
+                            Loading comments...
+                          </p>
+                        </div>
+                      ) : showEmptyState ? (
+                        <div className="flex h-full flex-col items-center justify-center py-10">
+                          <p className="text-center text-[13px] text-[#4A4A52]">
+                            {emptyStateText}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {[...filteredComments]
+                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                            .map((comment) => {
+                              const isResolved = comment.resolved;
+                              const isSelected = selectedPinId === comment.id;
+                              const isHovered = hoveredPinId === comment.id;
+
+                              // Ghost styling for resolved comments
+                              if (isResolved) {
+                                return (
+                                  <div
+                                    key={comment.id}
+                                    onClick={() => {
+                                      // For resolved comments, we can still select them to open popover
+                                      setSelectedPinId(comment.id);
+                                    }}
+                                    className={cn(
+                                      "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150 bg-[#1A1A22]",
+                                      isHovered ? "opacity-75" : "opacity-50"
+                                    )}
+                                    onMouseEnter={() => {
+                                      // Don't highlight pin for resolved (no pin exists)
+                                    }}
+                                    onMouseLeave={() => {
+                                      // Don't highlight pin for resolved
+                                    }}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className="text-[13px] font-medium leading-relaxed text-[#6B6B75] line-through flex-1">
+                                        {comment.text}
+                                      </p>
+                                      <Check className="h-3 w-3 text-[#5DCAA5] shrink-0 mt-0.5" />
+                                    </div>
+                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6B6B75] flex-wrap">
+                                      <span>{comment.author}</span>
+                                      <span>·</span>
+                                      <span>{formatRelativeTime(comment.createdAt)}</span>
+                                      {comment.resolvedBy && (
+                                        <>
+                                          <span>·</span>
+                                          <span>resolved by {comment.resolvedBy}</span>
+                                          {comment.resolvedAt && (
+                                            <>
+                                              <span>·</span>
+                                              <span>{formatRelativeTime(comment.resolvedAt)}</span>
+                                            </>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              // Active comment styling
+                              return (
+                                <div
+                                  key={comment.id}
+                                  onClick={() => setSelectedPinId(comment.id)}
+                                  onMouseEnter={() => setHoveredPinId(comment.id)}
+                                  onMouseLeave={() => setHoveredPinId(null)}
+                                  className={cn(
+                                    "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150",
+                                    isSelected
+                                      ? "bg-[#6E5BFF]"
+                                      : isHovered
+                                        ? "bg-[#22222C]"
+                                        : "bg-[#1A1A22] hover:bg-[#22222C]"
+                                  )}
+                                >
+                                  <p className={cn(
+                                    "text-[13px] font-medium leading-relaxed",
+                                    isSelected ? "text-white" : "text-white"
+                                  )}>
+                                    {comment.text}
+                                  </p>
+                                  <div className={cn(
+                                    "mt-1 flex items-center gap-2 text-[11px]",
+                                    isSelected ? "text-[#D6D0FF]" : "text-[#6B6B75]"
+                                  )}>
+                                    <span>{comment.author}</span>
+                                    <span>·</span>
+                                    <span>{formatRelativeTime(comment.createdAt)}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Popover for resolved comments when selected */}
+                    {selectedPinId && comments.find((c) => c.id === selectedPinId)?.resolved && (
+                      <div className="absolute bottom-4 left-4 right-4 z-50">
+                        <div className="rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3 shadow-xl">
+                          {(() => {
+                            const resolvedComment = comments.find((c) => c.id === selectedPinId);
+                            if (!resolvedComment) return null;
+                            return (
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-sm font-medium text-white">{resolvedComment.text}</p>
+                                  <div className="mt-1 flex items-center gap-2 text-xs text-[#6B6B75]">
+                                    <span>{resolvedComment.author}</span>
+                                    <span>·</span>
+                                    <span>{formatRelativeTime(resolvedComment.createdAt)}</span>
+                                    {resolvedComment.resolvedBy && (
+                                      <>
+                                        <span>·</span>
+                                        <span className="text-[#5DCAA5]">resolved by {resolvedComment.resolvedBy}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => {
+                                      handleReopenComment(resolvedComment.id);
+                                      setSelectedPinId(null);
+                                    }}
+                                    className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
+                                  >
+                                    Reopen
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleDeleteComment(resolvedComment.id);
+                                      setSelectedPinId(null);
+                                    }}
+                                    className="rounded-full bg-[#3A1F22] px-3 py-1.5 text-xs font-medium text-[#F09595] transition-all hover:bg-[#4A2A2D]"
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    onClick={() => setSelectedPinId(null)}
+                                    className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-[#6B6B75] transition-all hover:bg-[#2A2A33]"
+                                  >
+                                    Close
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })()}
+                        </div>
                       </div>
                     )}
-                  </div>
-                </>
-              )}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -1388,10 +1608,10 @@ export default function Home() {
             ) : (
               <MessageCircle className="h-[22px] w-[22px]" strokeWidth={2.5} />
             )}
-            {/* Comment count badge */}
-            {!isSidebarOpen && comments.length > 0 && (
+            {/* Comment count badge - only show active comments count */}
+            {!isSidebarOpen && comments.filter((c) => !c.resolved).length > 0 && (
               <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-1 text-[11px] font-medium text-[#0A0A0F]">
-                {comments.length}
+                {comments.filter((c) => !c.resolved).length}
               </span>
             )}
           </button>
