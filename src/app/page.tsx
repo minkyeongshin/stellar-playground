@@ -1107,7 +1107,7 @@ export default function Home() {
                       key={currentUrl}
                       src={currentUrl}
                       className="w-full border-0"
-                      style={{ height: `calc(100vh - ${NAV_HEIGHT}px)` }}
+                      style={{ height: "3000px" }}
                       title="Target Website"
                       onError={() => setIframeError(true)}
                     />
