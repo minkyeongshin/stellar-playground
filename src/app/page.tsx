@@ -302,12 +302,6 @@ function CommentPin({
                   <span>{comment.author}</span>
                   <span>·</span>
                   <span>{formatRelativeTime(comment.createdAt)}</span>
-                  {isResolved && comment.resolvedBy && (
-                    <>
-                      <span>·</span>
-                      <span className="text-[#5DCAA5]">resolved by {comment.resolvedBy}</span>
-                    </>
-                  )}
                 </div>
               </div>
               <div className="flex gap-2">
@@ -1124,24 +1118,26 @@ export default function Home() {
                     onMouseLeave={() => setCursorPos(null)}
                   />
 
-                  {/* Comment Pins - show both active (purple) and resolved (gray) */}
-                  {comments.map((comment) => (
-                    <CommentPin
-                      key={comment.id}
-                      comment={comment}
-                      isSelected={selectedPinId === comment.id}
-                      isHighlighted={hoveredPinId === comment.id}
-                      isSidebarOpen={isSidebarOpen}
-                      currentContainerWidth={containerWidth}
-                      onSelect={setSelectedPinId}
-                      onHover={setHoveredPinId}
-                      onEdit={handleEditComment}
-                      onDelete={handleDeleteComment}
-                      onResolve={handleResolveComment}
-                      onReopen={handleReopenComment}
-                      sidebarClickedRef={sidebarClickedRef}
-                    />
-                  ))}
+                  {/* Comment Pins - filtered by resolved state */}
+                  {comments
+                    .filter((comment) => comment.resolved === showResolved)
+                    .map((comment) => (
+                      <CommentPin
+                        key={comment.id}
+                        comment={comment}
+                        isSelected={selectedPinId === comment.id}
+                        isHighlighted={hoveredPinId === comment.id}
+                        isSidebarOpen={isSidebarOpen}
+                        currentContainerWidth={containerWidth}
+                        onSelect={setSelectedPinId}
+                        onHover={setHoveredPinId}
+                        onEdit={handleEditComment}
+                        onDelete={handleDeleteComment}
+                        onResolve={handleResolveComment}
+                        onReopen={handleReopenComment}
+                        sidebarClickedRef={sidebarClickedRef}
+                      />
+                    ))}
 
                   {/* New Comment Popup */}
                   {newCommentPos && (
@@ -1251,24 +1247,26 @@ export default function Home() {
                         onMouseLeave={() => setCursorPos(null)}
                       />
 
-                      {/* Comment Pins - show both active (purple) and resolved (gray) */}
-                      {comments.map((comment) => (
-                        <CommentPin
-                          key={comment.id}
-                          comment={comment}
-                          isSelected={selectedPinId === comment.id}
-                          isHighlighted={hoveredPinId === comment.id}
-                          isSidebarOpen={isSidebarOpen}
-                          currentContainerWidth={containerWidth}
-                          onSelect={setSelectedPinId}
-                          onHover={setHoveredPinId}
-                          onEdit={handleEditComment}
-                          onDelete={handleDeleteComment}
-                          onResolve={handleResolveComment}
-                          onReopen={handleReopenComment}
-                          sidebarClickedRef={sidebarClickedRef}
-                        />
-                      ))}
+                      {/* Comment Pins - filtered by resolved state */}
+                      {comments
+                        .filter((comment) => comment.resolved === showResolved)
+                        .map((comment) => (
+                          <CommentPin
+                            key={comment.id}
+                            comment={comment}
+                            isSelected={selectedPinId === comment.id}
+                            isHighlighted={hoveredPinId === comment.id}
+                            isSidebarOpen={isSidebarOpen}
+                            currentContainerWidth={containerWidth}
+                            onSelect={setSelectedPinId}
+                            onHover={setHoveredPinId}
+                            onEdit={handleEditComment}
+                            onDelete={handleDeleteComment}
+                            onResolve={handleResolveComment}
+                            onReopen={handleReopenComment}
+                            sidebarClickedRef={sidebarClickedRef}
+                          />
+                        ))}
 
                       {/* New Comment Popup */}
                       {newCommentPos && (
@@ -1433,10 +1431,10 @@ export default function Home() {
                       <button
                         onClick={() => setShowResolved(!showResolved)}
                         className={cn(
-                          "rounded-full px-2.5 py-1 text-[12px] transition-colors",
+                          "rounded-full text-[12px] font-medium text-white transition-all duration-150",
                           showResolved
-                            ? "bg-[#22222C] text-white"
-                            : "bg-transparent text-[#6B6B75] hover:text-white"
+                            ? "border border-transparent bg-[#6E5BFF] px-3 py-[5px]"
+                            : "border border-[#2A2D38] bg-transparent px-3 py-[5px] hover:border-[#3A3D48]"
                         )}
                       >
                         Resolved
@@ -1481,22 +1479,10 @@ export default function Home() {
                                     <p className="text-[13px] font-medium leading-relaxed text-[#6B6B75]">
                                       {comment.text}
                                     </p>
-                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6B6B75] flex-wrap">
+                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6B6B75]">
                                       <span>{comment.author}</span>
                                       <span>·</span>
                                       <span>{formatRelativeTime(comment.createdAt)}</span>
-                                      {comment.resolvedBy && (
-                                        <>
-                                          <span>·</span>
-                                          <span>resolved by {comment.resolvedBy}</span>
-                                          {comment.resolvedAt && (
-                                            <>
-                                              <span>·</span>
-                                              <span>{formatRelativeTime(comment.resolvedAt)}</span>
-                                            </>
-                                          )}
-                                        </>
-                                      )}
                                     </div>
                                   </div>
                                 );
