@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { X, ImageIcon, MessageCircle, ArrowUp } from "lucide-react";
+import { X, ImageIcon, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -404,30 +404,28 @@ export default function Home() {
     const urlParam = getUrlFromQueryParam();
     const imageParam = getImageFromQueryParam();
 
-    // Load author name
-    const savedAuthor = localStorage.getItem(AUTHOR_KEY);
-    if (savedAuthor) {
-      setAuthorName(savedAuthor);
-    }
-
     if (imageParam) {
-      // Image mode
+      // Image mode - load author name from localStorage
+      const savedAuthor = localStorage.getItem(AUTHOR_KEY);
+      if (savedAuthor) {
+        setAuthorName(savedAuthor);
+      }
       setViewMode("image");
       setCurrentImageId(imageParam);
     } else if (urlParam) {
-      // URL mode with query param
+      // URL mode with query param - load author name from localStorage
+      const savedAuthor = localStorage.getItem(AUTHOR_KEY);
+      if (savedAuthor) {
+        setAuthorName(savedAuthor);
+      }
       const normalizedUrl = normalizeUrl(urlParam);
       setViewMode("url");
       setCurrentUrl(normalizedUrl);
       setUrlInput(getDisplayUrl(normalizedUrl));
       updateBrowserUrl({ url: getDisplayUrl(normalizedUrl) });
     } else {
-      // Check localStorage for saved URL
-      const savedUrl = localStorage.getItem(URL_KEY);
-      if (savedUrl) {
-        // Show landing page but pre-fill the URL input
-        setLandingUrlInput(getDisplayUrl(savedUrl));
-      }
+      // Landing page - do NOT pre-fill any inputs from localStorage
+      // Both URL and name inputs should be empty
       setViewMode("landing");
     }
 
@@ -633,6 +631,14 @@ export default function Home() {
   const navigateToUrl = useCallback((newUrl: string) => {
     const normalizedUrl = normalizeUrl(newUrl);
 
+    // If navigating from landing and user hasn't entered a name, load from localStorage
+    if (viewMode === "landing" && !authorName.trim()) {
+      const savedAuthor = localStorage.getItem(AUTHOR_KEY);
+      if (savedAuthor) {
+        setAuthorName(savedAuthor);
+      }
+    }
+
     setViewMode("url");
     setCurrentUrl(normalizedUrl);
     setUrlInput(getDisplayUrl(normalizedUrl));
@@ -643,7 +649,7 @@ export default function Home() {
     setImageDoc(null);
 
     updateBrowserUrl({ url: getDisplayUrl(normalizedUrl), image: null });
-  }, []);
+  }, [viewMode, authorName]);
 
   // Handle URL input key events
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -895,91 +901,71 @@ export default function Home() {
     }
   };
 
-  // Render landing page with Quick branding
+  // Render landing page with Studio styling
   if (isLanding) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#5B4FE9] px-4 py-8">
-        <div className="flex flex-col items-center">
-          {/* Quick wordmark */}
-          <h1
-            className="mb-10 select-none text-center font-serif text-[64px] font-black italic leading-none text-white sm:text-[96px]"
-            style={{
-              WebkitTextStroke: "3px #000",
-              textShadow: "6px 6px 0 #000",
-              transform: "rotate(-2deg)",
-              letterSpacing: "-2px",
-            }}
-          >
-            Quick
-          </h1>
+      <div className="flex min-h-screen flex-col bg-[#0A0A0F]">
+        {/* Header - same as viewing page */}
+        <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F] px-4 py-3">
+          {/* Logo + Badge */}
+          <div className="flex items-center gap-2">
+            <Image
+              src="https://design-system.stellar.org/img/stellar.svg"
+              alt="Stellar"
+              width={100}
+              height={26}
+              className="h-[26px] w-auto invert brightness-0"
+              priority
+            />
+            <span className="rounded-full bg-[#1A1A22] px-2.5 py-1 text-[11px] font-medium text-white">
+              Quick
+            </span>
+          </div>
 
-          {/* Input card */}
-          <div
-            className="w-full max-w-[520px] rounded-[20px] border-4 border-black bg-white px-8 py-12 sm:px-14"
-            style={{ boxShadow: "10px 10px 0 #000" }}
-          >
-            {/* Upload icon */}
-            <div className="mx-auto mb-6 flex h-[72px] w-[72px] items-center justify-center rounded-2xl border-[3px] border-black bg-[#5B4FE9]">
-              <ArrowUp className="h-9 w-9 text-white" strokeWidth={3} />
-            </div>
-
-            {/* Heading */}
-            <h2
-              className="mb-2 text-center font-mono text-2xl font-bold uppercase tracking-[2px] text-black sm:text-[28px]"
-              style={{ fontFamily: "'Courier New', Courier, monospace" }}
-            >
-              DROP YOUR URL HERE
-            </h2>
-
-            {/* Subheading */}
-            <p
-              className="mb-6 text-center font-mono text-sm uppercase tracking-[2px] text-[#888]"
-              style={{ fontFamily: "'Courier New', Courier, monospace" }}
-            >
-              COMMENT • SHARE • SHIP
-            </p>
-
-            {/* Input + Button row */}
-            <div className="flex gap-2.5">
+          {/* Viewing: URL Input */}
+          <div className="flex items-center gap-2">
+            <span className="mr-1 text-[13px] text-[#6B6B75]">Viewing:</span>
+            <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-3.5">
               <input
                 ref={landingUrlInputRef}
                 type="text"
                 value={landingUrlInput}
                 onChange={(e) => setLandingUrlInput(e.target.value)}
                 onKeyDown={handleLandingUrlKeyDown}
-                className="flex-1 rounded-[10px] border-2 border-black bg-[#F5F3FF] px-4 py-3 font-mono text-[15px] text-black outline-none placeholder:text-gray-400"
-                style={{ fontFamily: "'Courier New', Courier, monospace" }}
-                placeholder="https://yourproject.vercel.app"
+                className="min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-0"
+                placeholder="Enter any demo URL"
               />
-              <button
-                type="button"
-                onClick={() => {
-                  if (landingUrlInput.trim()) {
-                    navigateToUrl(landingUrlInput);
-                  }
-                }}
-                className="rounded-[10px] border-2 border-black bg-[#5B4FE9] px-6 py-3 font-mono text-[15px] font-bold uppercase tracking-[1px] text-white transition-all hover:-translate-x-px hover:-translate-y-px active:translate-x-0.5 active:translate-y-0.5"
-                style={{
-                  fontFamily: "'Courier New', Courier, monospace",
-                  boxShadow: "4px 4px 0 #000",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = "5px 5px 0 #000";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = "4px 4px 0 #000";
-                }}
-                onMouseDown={(e) => {
-                  e.currentTarget.style.boxShadow = "2px 2px 0 #000";
-                }}
-                onMouseUp={(e) => {
-                  e.currentTarget.style.boxShadow = "5px 5px 0 #000";
-                }}
-              >
-                GO →
-              </button>
             </div>
           </div>
+
+          <div className="flex-1" />
+
+          {/* Comment as [name input] */}
+          <div className="flex items-center gap-2 text-[13px] text-[#6B6B75]">
+            <span>Comment as</span>
+            <input
+              type="text"
+              value={authorName}
+              onChange={(e) => setAuthorName(e.target.value)}
+              className="w-32 rounded-full border-none bg-[#1A1A22] px-3.5 py-1.5 text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
+              placeholder="Your name"
+            />
+          </div>
+        </header>
+
+        {/* Body - centered muted text */}
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-[14px] font-normal text-[#4A4A52]">
+            Enter your demo site URL to start commenting
+          </p>
+        </div>
+
+        {/* Muted FAB */}
+        <div
+          className="fixed bottom-6 right-6 z-50 flex items-center justify-center rounded-full opacity-50 cursor-not-allowed"
+          style={{ width: "52px", height: "52px", backgroundColor: "#6E5BFF" }}
+        >
+          <MessageCircle className="h-[22px] w-[22px] text-white" strokeWidth={2.5} />
         </div>
       </div>
     );
