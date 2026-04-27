@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { NavWrapper } from "@/components/NavWrapper";
 import "./globals.css";
 
 const inter = Inter({
@@ -24,9 +25,11 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} h-full antialiased dark`}
     >
-      <body className="h-full bg-slate-950 text-white">
+      <body className="h-full bg-[#0A0A0F] text-white">
         <TooltipProvider>
-          {children}
+          <NavWrapper>
+            {children}
+          </NavWrapper>
         </TooltipProvider>
       </body>
     </html>

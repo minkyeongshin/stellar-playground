@@ -3,73 +3,45 @@
 import Image from "next/image";
 import { X, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { forwardRef } from "react";
+import { useNav, NAV_HEIGHT, PILL_HEIGHT } from "@/contexts/NavContext";
 
-// Fixed height for the nav - must match in all usages
-export const NAV_HEIGHT = 56;
+export { NAV_HEIGHT } from "@/contexts/NavContext";
 
-interface TopNavProps {
-  // View state
-  isLanding: boolean;
-  viewMode: "landing" | "url" | "image";
-
-  // URL input state (landing)
-  landingUrlInput: string;
-  onLandingUrlInputChange: (value: string) => void;
-  onLandingUrlKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  landingUrlInputRef?: React.RefObject<HTMLInputElement | null>;
-
-  // URL input state (viewing)
-  urlInput: string;
-  onUrlInputChange: (value: string) => void;
-  onUrlKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onUrlFocus: () => void;
-  onUrlBlur: () => void;
-  isUrlFocused: boolean;
-  urlInputRef?: React.RefObject<HTMLInputElement | null>;
-
-  // Image state
-  imageFileName?: string;
-
-  // Author state
-  authorName: string;
-  onAuthorNameChange: (value: string) => void;
-  nameInputRef?: React.RefObject<HTMLInputElement | null>;
-
-  // Navigation
-  onGoToLanding: () => void;
-}
-
-export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
-  {
-    isLanding,
+export function TopNav() {
+  const {
     viewMode,
     landingUrlInput,
-    onLandingUrlInputChange,
-    onLandingUrlKeyDown,
-    landingUrlInputRef,
+    setLandingUrlInput,
     urlInput,
-    onUrlInputChange,
-    onUrlKeyDown,
-    onUrlFocus,
-    onUrlBlur,
+    setUrlInput,
     isUrlFocused,
-    urlInputRef,
+    setIsUrlFocused,
     imageFileName,
     authorName,
-    onAuthorNameChange,
+    setAuthorName,
+    landingUrlInputRef,
+    urlInputRef,
     nameInputRef,
+    onLandingUrlKeyDown,
+    onUrlKeyDown,
+    onUrlBlur,
     onGoToLanding,
-  },
-  ref
-) {
+  } = useNav();
+
+  const isLanding = viewMode === "landing";
+
   return (
     <header
-      ref={ref}
-      className="sticky top-0 z-50 flex items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F] px-4"
-      style={{ height: `${NAV_HEIGHT}px`, minHeight: `${NAV_HEIGHT}px`, maxHeight: `${NAV_HEIGHT}px` }}
+      className="sticky top-0 z-50 flex items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F]"
+      style={{
+        height: `${NAV_HEIGHT}px`,
+        minHeight: `${NAV_HEIGHT}px`,
+        maxHeight: `${NAV_HEIGHT}px`,
+        paddingLeft: "16px",
+        paddingRight: "16px",
+      }}
     >
-      {/* Logo + Badge - fixed width section */}
+      {/* Logo + Badge - fixed dimensions */}
       <button
         onClick={isLanding ? undefined : onGoToLanding}
         className={cn(
@@ -77,32 +49,37 @@ export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
           !isLanding && "transition-opacity hover:opacity-80"
         )}
         disabled={isLanding}
+        style={{ height: `${PILL_HEIGHT}px` }}
       >
         <Image
           src="https://design-system.stellar.org/img/stellar.svg"
           alt="Stellar"
           width={100}
           height={26}
-          className="h-[26px] w-auto invert brightness-0"
+          className="w-auto invert brightness-0"
+          style={{ height: "26px" }}
           priority
         />
-        <span className="rounded-full bg-[#1A1A22] px-2.5 py-1 text-[11px] font-medium text-white">
+        <span
+          className="rounded-full bg-[#1A1A22] text-[11px] font-medium text-white"
+          style={{ padding: "4px 10px", lineHeight: "1" }}
+        >
           Quick
         </span>
       </button>
 
-      {/* Viewing: URL Input - this section must have identical height in all states */}
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="mr-1 text-[13px] text-[#6B6B75]">Viewing:</span>
-        {/*
-          URL pill container - MUST have identical height (32px) in all states:
-          - Landing: input + placeholder
-          - URL mode: input + close button/placeholder
-          - Image mode: icon + text + close button
-        */}
+      {/* Viewing: URL Input section */}
+      <div className="flex items-center gap-2 shrink-0" style={{ height: `${PILL_HEIGHT}px` }}>
+        <span className="mr-1 text-[13px] text-[#6B6B75]" style={{ lineHeight: "1" }}>Viewing:</span>
+        {/* URL pill - EXACT same height in all states */}
         <div
-          className="flex items-center gap-1 rounded-full bg-[#1A1A22] pl-3.5 pr-1.5"
-          style={{ height: "32px" }}
+          className="flex items-center rounded-full bg-[#1A1A22]"
+          style={{
+            height: `${PILL_HEIGHT}px`,
+            paddingLeft: "12px",
+            paddingRight: "4px",
+            gap: "4px",
+          }}
         >
           {isLanding ? (
             // Landing: URL input
@@ -111,14 +88,14 @@ export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
                 ref={landingUrlInputRef}
                 type="text"
                 value={landingUrlInput}
-                onChange={(e) => onLandingUrlInputChange(e.target.value)}
+                onChange={(e) => setLandingUrlInput(e.target.value)}
                 onKeyDown={onLandingUrlKeyDown}
-                className="min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none placeholder:text-[#6B6B75]"
-                style={{ height: "20px", lineHeight: "20px" }}
+                className="bg-transparent text-[13px] text-white outline-none placeholder:text-[#6B6B75]"
+                style={{ width: "200px", height: "18px", lineHeight: "18px" }}
                 placeholder="Enter any demo URL"
               />
-              {/* Fixed 26px placeholder to match close button */}
-              <div className="w-[26px] h-[26px] shrink-0" />
+              {/* Placeholder to match close button width */}
+              <div style={{ width: "20px", height: "20px" }} className="shrink-0" />
             </>
           ) : viewMode === "url" ? (
             // URL viewing mode
@@ -127,15 +104,15 @@ export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
                 ref={urlInputRef}
                 type="text"
                 value={urlInput}
-                onChange={(e) => onUrlInputChange(e.target.value)}
+                onChange={(e) => setUrlInput(e.target.value)}
                 onKeyDown={onUrlKeyDown}
-                onFocus={onUrlFocus}
+                onFocus={() => setIsUrlFocused(true)}
                 onBlur={onUrlBlur}
                 className={cn(
-                  "min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none placeholder:text-[#6B6B75]",
+                  "bg-transparent text-[13px] text-white outline-none placeholder:text-[#6B6B75]",
                   isUrlFocused && "ring-0"
                 )}
-                style={{ height: "20px", lineHeight: "20px" }}
+                style={{ width: "200px", height: "18px", lineHeight: "18px" }}
                 placeholder="Enter URL..."
               />
               {urlInput ? (
@@ -145,30 +122,32 @@ export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
                     e.preventDefault();
                     onGoToLanding();
                   }}
-                  className="flex items-center justify-center w-[26px] h-[26px] shrink-0 rounded-full text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                  className="flex items-center justify-center shrink-0 rounded-full text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                  style={{ width: "20px", height: "20px" }}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X style={{ width: "12px", height: "12px" }} />
                 </button>
               ) : (
-                <div className="w-[26px] h-[26px] shrink-0" />
+                <div style={{ width: "20px", height: "20px" }} className="shrink-0" />
               )}
             </>
           ) : viewMode === "image" && imageFileName ? (
             // Image viewing mode
             <>
-              <ImageIcon className="h-4 w-4 text-[#6B6B75] shrink-0" />
+              <ImageIcon style={{ width: "14px", height: "14px" }} className="text-[#6B6B75] shrink-0" />
               <span
-                className="text-[13px] text-white truncate max-w-[260px]"
-                style={{ height: "20px", lineHeight: "20px" }}
+                className="text-[13px] text-white truncate"
+                style={{ maxWidth: "180px", height: "18px", lineHeight: "18px" }}
               >
                 {imageFileName}
               </span>
               <button
                 type="button"
                 onClick={onGoToLanding}
-                className="flex items-center justify-center w-[26px] h-[26px] shrink-0 rounded-full text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                className="flex items-center justify-center shrink-0 rounded-full text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                style={{ width: "20px", height: "20px" }}
               >
-                <X className="h-3.5 w-3.5" />
+                <X style={{ width: "12px", height: "12px" }} />
               </button>
             </>
           ) : (
@@ -176,11 +155,11 @@ export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
             <>
               <span
                 className="text-[13px] text-[#6B6B75]"
-                style={{ height: "20px", lineHeight: "20px" }}
+                style={{ height: "18px", lineHeight: "18px" }}
               >
                 Loading...
               </span>
-              <div className="w-[26px] h-[26px] shrink-0" />
+              <div style={{ width: "20px", height: "20px" }} className="shrink-0" />
             </>
           )}
         </div>
@@ -189,19 +168,25 @@ export const TopNav = forwardRef<HTMLElement, TopNavProps>(function TopNav(
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Comment as [name input] - fixed width section */}
-      <div className="flex items-center gap-2 text-[13px] text-[#6B6B75] shrink-0">
-        <span>Comment as</span>
+      {/* Comment as [name input] */}
+      <div className="flex items-center gap-2 text-[13px] text-[#6B6B75] shrink-0" style={{ height: `${PILL_HEIGHT}px` }}>
+        <span style={{ lineHeight: "1" }}>Comment as</span>
         <input
           ref={isLanding ? undefined : nameInputRef}
           type="text"
           value={authorName}
-          onChange={(e) => onAuthorNameChange(e.target.value)}
-          className="w-32 rounded-full border-none bg-[#1A1A22] px-3.5 text-[13px] text-white outline-none placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
-          style={{ height: "32px", lineHeight: "32px" }}
+          onChange={(e) => setAuthorName(e.target.value)}
+          className="rounded-full border-none bg-[#1A1A22] text-[13px] text-white outline-none placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
+          style={{
+            width: "128px",
+            height: `${PILL_HEIGHT}px`,
+            paddingLeft: "12px",
+            paddingRight: "12px",
+            lineHeight: `${PILL_HEIGHT}px`,
+          }}
           placeholder="Your name"
         />
       </div>
     </header>
   );
-});
+}
