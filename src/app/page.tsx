@@ -305,7 +305,7 @@ function CommentPin({
     const finalPosition = localPositionRef.current;
 
     if (state.hasDragged && finalPosition) {
-      // It was a drag - save new position, DO NOT open popover
+      // It was a drag - save new position, DO NOT open popover or sidebar
       justDraggedRef.current = true;
 
       // Block the click event that fires after mouseup (capture phase, once)
@@ -318,6 +318,7 @@ function CommentPin({
       onMove(comment.id, finalPosition.x, finalPosition.y);
       setIsDragging(false);
       setLocalPosition(null);
+      setIsLocalHover(false); // Clear hover state to hide tooltip
 
       // Reset flag after click would have fired
       setTimeout(() => {
@@ -325,13 +326,11 @@ function CommentPin({
       }, 100);
 
       dragStateRef.current = null;
-      return; // Exit early - don't open popover
+      return; // Exit early - don't open popover or sidebar
     }
 
-    // It was a click (no movement) - open popover
-    if (!justDraggedRef.current) {
-      onSelect(comment.id);
-    }
+    // It was a click (no movement) - open popover AND sidebar
+    onSelect(comment.id);
 
     dragStateRef.current = null;
   }, [handleMouseMove, comment.id, onMove, onSelect]);
