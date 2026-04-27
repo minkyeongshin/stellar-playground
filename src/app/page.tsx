@@ -1380,8 +1380,9 @@ export default function Home() {
                 isSidebarOpen ? "w-80" : "w-0"
               )}
               style={{ top: `${NAV_HEIGHT}px` }}
-              onMouseDown={() => {
+              onPointerDownCapture={() => {
                 // Mark that sidebar was clicked - CommentPin's handlePopoverChange will check this
+                // Using onPointerDownCapture to fire BEFORE Base UI Popover's pointerdown listener
                 sidebarClickedRef.current = true;
                 // Clear after a short delay to handle edge cases
                 setTimeout(() => {
