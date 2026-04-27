@@ -199,78 +199,148 @@ function CommentPin({
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
-  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragStartRef = useRef<{ x: number; y: number; pinX: number; pinY: number } | null>(null);
+  const [localPosition, setLocalPosition] = useState<{ x: number; y: number } | null>(null);
+  const pinRef = useRef<HTMLButtonElement>(null);
+  const dragStateRef = useRef<{
+    startX: number;
+    startY: number;
+    grabOffsetX: number;
+    grabOffsetY: number;
+    hasDragged: boolean;
+  } | null>(null);
 
   const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen && !isDragging;
   const isResolved = comment.resolved;
 
-  // Drag handlers
-  const handleDragStart = (e: React.MouseEvent) => {
+  const DRAG_THRESHOLD = 8; // px
+
+  // Handle mousedown - start tracking for potential drag
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      pinX: dragPosition?.x ?? adjustedX,
-      pinY: dragPosition?.y ?? comment.y,
-    };
-  };
 
-  useEffect(() => {
-    if (!dragStartRef.current) return;
+    if (!pinRef.current) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current || !containerRef.current) return;
+    const pinRect = pinRef.current.getBoundingClientRect();
+    const grabOffsetX = e.clientX - pinRect.left;
+    const grabOffsetY = e.clientY - pinRect.top;
 
-      const dx = e.clientX - dragStartRef.current.x;
-      const dy = e.clientY - dragStartRef.current.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      // Only start dragging after 5px movement
-      if (!isDragging && distance > 5) {
-        setIsDragging(true);
-      }
-
-      if (isDragging || distance > 5) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-        const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
-
-        // Clamp to 0-100%
-        setDragPosition({
-          x: Math.max(0, Math.min(100, xPercent)),
-          y: Math.max(0, Math.min(100, yPercent)),
-        });
-      }
+    dragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      grabOffsetX,
+      grabOffsetY,
+      hasDragged: false,
     };
 
-    const handleMouseUp = () => {
-      if (isDragging && dragPosition) {
-        // Save new position
-        onMove(comment.id, dragPosition.x, dragPosition.y);
-      }
-      setIsDragging(false);
-      dragStartRef.current = null;
-    };
-
+    // Add document listeners
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
+  }, []);
 
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging, dragPosition, comment.id, onMove, containerRef, adjustedX, comment.y]);
+  // Handle mouse move - detect drag threshold and update position
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    const state = dragStateRef.current;
+    if (!state || !containerRef.current) return;
 
-  // Reset drag position when comment position changes (e.g., from Firestore update)
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Only enter drag mode after passing threshold
+    if (!state.hasDragged && distance >= DRAG_THRESHOLD) {
+      state.hasDragged = true;
+      setIsDragging(true);
+
+      // Disable iframe pointer-events to prevent dead zones
+      const iframe = document.querySelector("iframe");
+      if (iframe) {
+        iframe.style.pointerEvents = "none";
+      }
+    }
+
+    if (!state.hasDragged) return; // Not yet dragging
+
+    // Calculate new pin position based on grab offset
+    const wrapperRect = containerRef.current.getBoundingClientRect();
+    const newPinLeft = e.clientX - state.grabOffsetX - wrapperRect.left;
+    const newPinTop = e.clientY - state.grabOffsetY - wrapperRect.top;
+
+    // Convert to % of wrapper
+    const xPercent = (newPinLeft / wrapperRect.width) * 100;
+    const yPercent = (newPinTop / wrapperRect.height) * 100;
+
+    // Clamp so pin stays within bounds (pin is ~28px)
+    const pinSizeX = (28 / wrapperRect.width) * 100;
+    const pinSizeY = (28 / wrapperRect.height) * 100;
+
+    setLocalPosition({
+      x: Math.max(0, Math.min(100 - pinSizeX, xPercent)),
+      y: Math.max(0, Math.min(100 - pinSizeY, yPercent)),
+    });
+  }, [containerRef]);
+
+  // Handle mouse up - save position or open popover
+  const handleMouseUp = useCallback(() => {
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+
+    // Re-enable iframe pointer-events
+    const iframe = document.querySelector("iframe");
+    if (iframe) {
+      iframe.style.pointerEvents = "auto";
+    }
+
+    const state = dragStateRef.current;
+    if (!state) return;
+
+    if (state.hasDragged && localPosition) {
+      // It was a drag - save new position
+      onMove(comment.id, localPosition.x, localPosition.y);
+      setIsDragging(false);
+      setLocalPosition(null);
+    } else {
+      // It was a click (no movement) - open popover
+      onSelect(comment.id);
+    }
+
+    dragStateRef.current = null;
+  }, [handleMouseMove, localPosition, comment.id, onMove, onSelect]);
+
+  // Handle Esc key to cancel drag
   useEffect(() => {
-    setDragPosition(null);
+    if (!isDragging) return;
+
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // Cancel drag, revert to original position
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+
+        // Re-enable iframe pointer-events
+        const iframe = document.querySelector("iframe");
+        if (iframe) {
+          iframe.style.pointerEvents = "auto";
+        }
+
+        dragStateRef.current = null;
+        setIsDragging(false);
+        setLocalPosition(null);
+      }
+    };
+
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  // Reset local position when comment position changes (e.g., from Firestore update)
+  useEffect(() => {
+    setLocalPosition(null);
   }, [comment.x, comment.y]);
 
-  // Current display position (drag position or actual position)
-  const displayX = dragPosition?.x ?? adjustedX;
-  const displayY = dragPosition?.y ?? comment.y;
+  // Current display position (local drag position or actual position)
+  const displayX = isDragging && localPosition ? localPosition.x : adjustedX;
+  const displayY = isDragging && localPosition ? localPosition.y : comment.y;
 
   // Pin colors: purple for active, gray for resolved
   const pinBgColor = isResolved ? "#4A4A52" : "#6E5BFF";
@@ -308,14 +378,15 @@ function CommentPin({
   return (
     <div
       className={cn(
-        "pointer-events-auto absolute z-10",
-        isDragging ? "z-50" : "z-10"
+        "pointer-events-auto absolute",
+        isDragging ? "z-[100]" : "z-10"
       )}
       style={{
         left: `${displayX}%`,
         top: `${displayY}%`,
         transform: "translate(-50%, -50%)",
-        transition: isDragging ? "none" : "left 150ms ease, top 150ms ease",
+        transition: isDragging ? "none" : "left 150ms ease, top 150ms ease, opacity 150ms ease",
+        userSelect: "none",
       }}
       onMouseEnter={() => {
         if (!isDragging) {
@@ -332,6 +403,7 @@ function CommentPin({
     >
       <Popover open={isSelected && !isDragging} onOpenChange={handlePopoverChange}>
         <PopoverTrigger
+          ref={pinRef}
           className={cn(
             "flex h-7 w-7 items-center justify-center rounded-full transition-all duration-150",
             isDragging
@@ -352,8 +424,10 @@ function CommentPin({
                   ? pinHighlightShadow
                   : undefined,
             cursor: isDragging ? "grabbing" : "grab",
+            userSelect: "none",
+            transition: isDragging ? "none" : "transform 150ms ease, box-shadow 150ms ease",
           }}
-          onMouseDown={handleDragStart}
+          onMouseDown={handleMouseDown}
         >
           <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
         </PopoverTrigger>
