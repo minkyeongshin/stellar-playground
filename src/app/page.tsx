@@ -170,6 +170,7 @@ function CommentPin({
   onDelete,
   onResolve,
   onReopen,
+  sidebarClickedRef,
 }: {
   comment: Comment;
   isSelected: boolean;
@@ -182,6 +183,7 @@ function CommentPin({
   onDelete: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
+  sidebarClickedRef: React.RefObject<boolean | null>;
 }) {
   // Calculate adjusted x position to keep pin anchored when container resizes
   const adjustedX = comment.containerWidth && currentContainerWidth > 0
@@ -212,6 +214,11 @@ function CommentPin({
     if (open) {
       onSelect(comment.id);
     } else {
+      // Don't deselect if the click was inside the sidebar
+      if (sidebarClickedRef.current) {
+        sidebarClickedRef.current = false;
+        return;
+      }
       onSelect(null);
       setIsEditing(false);
     }
@@ -435,6 +442,8 @@ export default function Home() {
   const newCommentInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isUrlCommittedRef = useRef(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const sidebarClickedRef = useRef(false);
 
   // Determine current target for comments
   const currentTargetType: "url" | "image" = viewMode === "image" ? "image" : "url";
@@ -1130,6 +1139,7 @@ export default function Home() {
                       onDelete={handleDeleteComment}
                       onResolve={handleResolveComment}
                       onReopen={handleReopenComment}
+                      sidebarClickedRef={sidebarClickedRef}
                     />
                   ))}
 
@@ -1256,6 +1266,7 @@ export default function Home() {
                           onDelete={handleDeleteComment}
                           onResolve={handleResolveComment}
                           onReopen={handleReopenComment}
+                          sidebarClickedRef={sidebarClickedRef}
                         />
                       ))}
 
@@ -1364,15 +1375,20 @@ export default function Home() {
 
             {/* Comments Sidebar */}
             <div
+              ref={sidebarRef}
               data-sidebar
               className={cn(
                 "fixed right-0 bottom-0 flex flex-col border-l border-[#1F1F26] bg-[#0F0F15] transition-all duration-300 z-40",
                 isSidebarOpen ? "w-80" : "w-0"
               )}
               style={{ top: `${NAV_HEIGHT}px` }}
-              onPointerDownCapture={(e) => {
-                // Stop propagation to prevent Popover from closing when clicking sidebar
-                e.stopPropagation();
+              onMouseDown={() => {
+                // Mark that sidebar was clicked - CommentPin's handlePopoverChange will check this
+                sidebarClickedRef.current = true;
+                // Clear after a short delay to handle edge cases
+                setTimeout(() => {
+                  sidebarClickedRef.current = false;
+                }, 100);
               }}
             >
               {isSidebarOpen && (() => {
