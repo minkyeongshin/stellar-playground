@@ -223,29 +223,26 @@ function CommentPin({
       <Popover open={isSelected} onOpenChange={handlePopoverChange}>
         <PopoverTrigger
           className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-full bg-purple-600 text-xs shadow-lg transition-all duration-200",
+            "flex h-7 w-7 items-center justify-center rounded-full bg-[#6E5BFF] shadow-lg transition-all duration-150",
             isSelected
-              ? "scale-125 shadow-purple-400/70 ring-4 ring-purple-400/50"
+              ? "scale-110 ring-2 ring-[#6E5BFF]/50"
               : isHighlighted
-                ? "scale-110 shadow-purple-400/60 ring-2 ring-purple-400/40"
-                : "shadow-purple-500/50 hover:scale-110"
+                ? "scale-105"
+                : "hover:scale-110"
           )}
-          style={{
-            animation: isHighlighted ? "none" : "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-          }}
         >
-          💬
+          <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
         </PopoverTrigger>
         <PopoverContent
           side="right"
-          className="w-64 border-white/10 bg-slate-900/95 p-3 backdrop-blur-md"
+          className="w-64 rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3"
         >
           {isEditing ? (
             <div className="space-y-2">
-              <Input
+              <input
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="border-white/20 bg-white/10 text-white"
+                className="w-full rounded-full border-none bg-[#22222C] px-3 py-2 text-sm text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
                 placeholder="Edit comment..."
                 autoFocus
                 onKeyDown={(e) => {
@@ -254,52 +251,46 @@ function CommentPin({
                 }}
               />
               <div className="flex gap-2">
-                <Button
-                  size="sm"
+                <button
                   onClick={handleSaveEdit}
-                  className="bg-purple-600 text-white hover:bg-purple-700"
+                  className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF]"
                 >
                   Save
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
+                </button>
+                <button
                   onClick={() => setIsEditing(false)}
-                  className="text-slate-400 hover:text-white"
+                  className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
                 >
                   Cancel
-                </Button>
+                </button>
               </div>
             </div>
           ) : (
             <div className="space-y-3">
               <div>
-                <p className="text-sm text-white">{comment.text}</p>
-                <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+                <p className="text-sm font-medium text-white">{comment.text}</p>
+                <div className="mt-1 flex items-center gap-2 text-xs text-[#6B6B75]">
                   <span>{comment.author}</span>
                   <span>·</span>
                   <span>{formatRelativeTime(comment.createdAt)}</span>
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
+                <button
                   onClick={() => setIsEditing(true)}
-                  className="border-white/20 text-white hover:bg-white/10"
+                  className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
                 >
                   Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
+                </button>
+                <button
                   onClick={() => {
                     onDelete(comment.id);
                     onSelect(null);
                   }}
+                  className="rounded-full bg-[#3A1F22] px-3 py-1.5 text-xs font-medium text-[#F09595] transition-all hover:bg-[#4A2A2D]"
                 >
                   Delete
-                </Button>
+                </button>
               </div>
             </div>
           )}
@@ -311,17 +302,17 @@ function CommentPin({
           className="pointer-events-none absolute left-1/2 bottom-full mb-3 z-50"
           style={{ transform: "translateX(-50%)" }}
         >
-          <div className="relative min-w-[260px] max-w-[340px] rounded-xl border border-white/10 bg-slate-900 p-4 shadow-2xl">
-            <p className="text-sm leading-relaxed text-white whitespace-pre-wrap">
+          <div className="relative min-w-[260px] max-w-[340px] rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-4 shadow-2xl">
+            <p className="text-sm font-medium leading-relaxed text-white whitespace-pre-wrap">
               {comment.text}
             </p>
-            <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="font-medium text-slate-400">{comment.author}</span>
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-[#6B6B75]">
+              <span>{comment.author}</span>
               <span>·</span>
               <span>{formatRelativeTime(comment.createdAt)}</span>
             </div>
             <div className="absolute left-1/2 -bottom-2 -translate-x-1/2">
-              <div className="h-3 w-3 rotate-45 border-b border-r border-white/10 bg-slate-900" />
+              <div className="h-3 w-3 rotate-45 border-b border-r border-[#1F1F26] bg-[#1A1A22]" />
             </div>
           </div>
         </div>
@@ -971,11 +962,11 @@ export default function Home() {
     );
   }
 
-  // Render viewing page (unchanged)
+  // Render viewing page
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950">
+    <div className="flex min-h-screen flex-col bg-[#0A0A0F]">
       {/* Header for viewing page */}
-      <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur-md">
+      <header className="sticky top-0 z-50 flex flex-wrap items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F] px-4 py-3">
         {/* Logo + Badge */}
         <button
           onClick={goToLanding}
@@ -989,18 +980,18 @@ export default function Home() {
             className="h-[26px] w-auto invert brightness-0"
             priority
           />
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">
+          <span className="rounded-full bg-[#1A1A22] px-2.5 py-1 text-[11px] font-medium text-white">
             Quick
           </span>
         </button>
 
         {/* Viewing: URL Input */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-400">Viewing:</span>
+          <span className="mr-1 text-[13px] text-[#6B6B75]">Viewing:</span>
           <div className="relative">
             {viewMode === "url" ? (
-              // URL viewing mode: editable URL with clear button
-              <>
+              // URL viewing mode: pill chip with URL
+              <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
                 <input
                   ref={urlInputRef}
                   type="text"
@@ -1010,11 +1001,8 @@ export default function Home() {
                   onFocus={() => setIsUrlFocused(true)}
                   onBlur={handleUrlBlur}
                   className={cn(
-                    "bg-transparent text-sm text-slate-300 outline-none transition-all",
-                    "min-w-[200px] max-w-[400px] py-1 pl-2 pr-7 rounded",
-                    isUrlFocused
-                      ? "border border-purple-500/50 ring-2 ring-purple-500/20 bg-white/5"
-                      : "border border-transparent hover:bg-white/5"
+                    "min-w-[180px] max-w-[300px] bg-transparent text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75]",
+                    isUrlFocused && "ring-0"
                   )}
                   placeholder="Enter URL..."
                 />
@@ -1025,28 +1013,28 @@ export default function Home() {
                       e.preventDefault();
                       goToLanding();
                     }}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-white transition-colors"
+                    className="rounded-full p-1.5 text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
-              </>
+              </div>
             ) : viewMode === "image" && imageDoc ? (
-              // Image viewing mode: show filename with clear button
-              <div className="flex items-center gap-2">
-                <ImageIcon className="h-4 w-4 text-slate-400" />
-                <span className="text-sm text-slate-300">{imageDoc.fileName}</span>
+              // Image viewing mode: pill chip with filename
+              <div className="flex items-center gap-1 rounded-full bg-[#1A1A22] py-1.5 pl-3.5 pr-1.5">
+                <ImageIcon className="h-4 w-4 text-[#6B6B75]" />
+                <span className="text-[13px] text-white">{imageDoc.fileName}</span>
                 <button
                   type="button"
                   onClick={goToLanding}
-                  className="p-0.5 text-slate-500 hover:text-white transition-colors"
+                  className="rounded-full p-1.5 text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
               // Image loading state
-              <span className="text-sm text-slate-500">Loading...</span>
+              <span className="text-[13px] text-[#6B6B75]">Loading...</span>
             )}
           </div>
         </div>
@@ -1054,14 +1042,14 @@ export default function Home() {
         <div className="flex-1" />
 
         {/* Comment as [name input] */}
-        <div className="flex items-center gap-2 text-sm text-slate-400">
+        <div className="flex items-center gap-2 text-[13px] text-[#6B6B75]">
           <span>Comment as</span>
           <input
             ref={nameInputRef}
             type="text"
             value={authorName}
             onChange={(e) => setAuthorName(e.target.value)}
-            className="w-32 rounded border border-white/20 bg-white/5 px-2 py-1 text-sm text-white outline-none transition-all placeholder:text-slate-500 focus:border-purple-500/50 focus:bg-white/10"
+            className="w-32 rounded-full border-none bg-[#1A1A22] px-3.5 py-1.5 text-[13px] text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
             placeholder="Your name"
           />
         </div>
@@ -1081,31 +1069,30 @@ export default function Home() {
           {viewMode === "url" && (
             <div ref={containerRef} className="relative">
               {iframeError ? (
-                <div className="flex h-[500px] w-full flex-col items-center justify-center bg-slate-900 text-center">
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-8 backdrop-blur-md">
-                    <div className="text-4xl mb-4">🚫</div>
-                    <h2 className="text-xl font-semibold text-white mb-2">
+                <div className="flex h-[500px] w-full flex-col items-center justify-center bg-[#0A0A0F] text-center">
+                  <div className="rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-8">
+                    <div className="mb-4 text-4xl">🚫</div>
+                    <h2 className="mb-2 text-xl font-semibold text-white">
                       This site cannot be embedded
                     </h2>
-                    <p className="text-slate-400 max-w-md mb-4">
+                    <p className="mb-4 max-w-md text-[#6B6B75]">
                       Try uploading a screenshot instead, or open{" "}
                       <a
                         href={currentUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-purple-400 hover:text-purple-300 underline"
+                        className="text-[#6E5BFF] hover:text-[#8170FF] underline"
                       >
                         {getDisplayUrl(currentUrl)}
                       </a>{" "}
                       in a new tab.
                     </p>
-                    <Button
+                    <button
                       onClick={goToLanding}
-                      variant="outline"
-                      className="border-white/20 text-white hover:bg-white/10"
+                      className="rounded-full bg-[#22222C] px-4 py-2 text-sm font-medium text-white transition-all hover:bg-[#2A2A33]"
                     >
                       Upload Screenshot Instead
-                    </Button>
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -1165,12 +1152,12 @@ export default function Home() {
                     transform: "translate(8px, -50%)",
                   }}
                 >
-                  <div className="w-64 rounded-lg border border-white/10 bg-slate-900/95 p-3 shadow-xl backdrop-blur-md">
-                    <Input
+                  <div className="w-64 rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3 shadow-xl">
+                    <input
                       ref={newCommentInputRef}
                       value={newCommentText}
                       onChange={(e) => setNewCommentText(e.target.value)}
-                      className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
+                      className="w-full rounded-lg border-none bg-[#22222C] px-3 py-2 text-sm text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
                       placeholder="Add a comment..."
                       onKeyDown={(e) => {
                         if (e.key === "Enter") handlePostComment();
@@ -1178,26 +1165,23 @@ export default function Home() {
                       }}
                     />
                     <div className="mt-2 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">
+                      <span className="text-[11px] text-[#6B6B75]">
                         Posting as {authorName}
                       </span>
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
+                        <button
                           onClick={handleCancelNewComment}
-                          className="text-slate-400 hover:text-white"
+                          className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
                         >
                           Cancel
-                        </Button>
-                        <Button
-                          size="sm"
+                        </button>
+                        <button
                           onClick={handlePostComment}
                           disabled={!newCommentText.trim()}
-                          className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                          className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
                         >
                           Post
-                        </Button>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1208,29 +1192,29 @@ export default function Home() {
 
           {/* Image Mode */}
           {viewMode === "image" && (
-            <div className="flex items-center justify-center min-h-[calc(100vh-57px)] bg-slate-900/50 p-8">
+            <div className="flex min-h-[calc(100vh-57px)] items-center justify-center bg-[#0A0A0F] p-8">
               {isLoadingImage ? (
-                <div className="text-slate-400">Loading image...</div>
+                <div className="text-[#6B6B75]">Loading image...</div>
               ) : imageError ? (
                 <div className="text-center">
-                  <div className="text-4xl mb-4">🖼️</div>
-                  <h2 className="text-xl font-semibold text-white mb-2">
+                  <div className="mb-4 text-4xl">🖼️</div>
+                  <h2 className="mb-2 text-xl font-semibold text-white">
                     {imageError}
                   </h2>
-                  <p className="text-slate-400 mb-4">
+                  <p className="mb-4 text-[#6B6B75]">
                     This image may have been deleted or the link is invalid.
                   </p>
-                  <Button
+                  <button
                     onClick={goToLanding}
-                    className="bg-purple-600 text-white hover:bg-purple-700"
+                    className="rounded-full bg-[#6E5BFF] px-4 py-2 text-sm font-medium text-white transition-all hover:bg-[#8170FF]"
                   >
                     Go Back
-                  </Button>
+                  </button>
                 </div>
               ) : imageDoc ? (
                 <div
                   ref={imageContainerRef}
-                  className="relative rounded-lg shadow-2xl shadow-black/50 border border-white/10 overflow-hidden"
+                  className="relative overflow-hidden rounded-lg border border-[#1F1F26] shadow-2xl shadow-black/50"
                   style={{
                     maxWidth: "100%",
                     maxHeight: "calc(100vh - 120px)",
@@ -1292,12 +1276,12 @@ export default function Home() {
                         transform: "translate(8px, -50%)",
                       }}
                     >
-                      <div className="w-64 rounded-lg border border-white/10 bg-slate-900/95 p-3 shadow-xl backdrop-blur-md">
-                        <Input
+                      <div className="w-64 rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3 shadow-xl">
+                        <input
                           ref={newCommentInputRef}
                           value={newCommentText}
                           onChange={(e) => setNewCommentText(e.target.value)}
-                          className="border-white/20 bg-white/10 text-white placeholder:text-slate-500"
+                          className="w-full rounded-lg border-none bg-[#22222C] px-3 py-2 text-sm text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
                           placeholder="Add a comment..."
                           onKeyDown={(e) => {
                             if (e.key === "Enter") handlePostComment();
@@ -1305,26 +1289,23 @@ export default function Home() {
                           }}
                         />
                         <div className="mt-2 flex items-center justify-between">
-                          <span className="text-xs text-slate-400">
+                          <span className="text-[11px] text-[#6B6B75]">
                             Posting as {authorName}
                           </span>
                           <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="ghost"
+                            <button
                               onClick={handleCancelNewComment}
-                              className="text-slate-400 hover:text-white"
+                              className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
                             >
                               Cancel
-                            </Button>
-                            <Button
-                              size="sm"
+                            </button>
+                            <button
                               onClick={handlePostComment}
                               disabled={!newCommentText.trim()}
-                              className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                              className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
                             >
                               Post
-                            </Button>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1346,7 +1327,7 @@ export default function Home() {
                 top: cursorPos.y + 16,
               }}
             >
-              <div className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+              <div className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white shadow-lg">
                 Enter your name first
               </div>
             </div>
@@ -1358,7 +1339,9 @@ export default function Home() {
                 top: cursorPos.y + 6,
               }}
             >
-              <span className="text-xl">💬</span>
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#6E5BFF] shadow-lg">
+                <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
+              </div>
             </div>
           )
         )}
@@ -1366,12 +1349,12 @@ export default function Home() {
         {/* Comment mode hint overlay at bottom */}
         {mode === "comment" && !newCommentPos && (
           <div className="pointer-events-none fixed bottom-20 left-1/2 z-[100] -translate-x-1/2">
-            <div className="rounded-lg bg-slate-900/95 px-4 py-2 shadow-lg backdrop-blur-sm border border-white/10">
-              <p className="text-sm text-slate-300">
+            <div className="rounded-full border border-[#1F1F26] bg-[#1A1A22] px-4 py-2 shadow-lg">
+              <p className="text-[13px] text-white">
                 Click anywhere to place a comment{" "}
-                <span className="text-slate-500">·</span>{" "}
+                <span className="text-[#6B6B75]">·</span>{" "}
                 Press{" "}
-                <kbd className="inline-flex items-center justify-center rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-300">
+                <kbd className="inline-flex items-center justify-center rounded bg-[#22222C] px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
                   Esc
                 </kbd>{" "}
                 to cancel
@@ -1383,47 +1366,49 @@ export default function Home() {
         {/* Comments Sidebar */}
         <div
           className={cn(
-            "fixed right-0 top-[57px] bottom-0 flex flex-col border-l border-white/10 bg-slate-900/95 backdrop-blur-md transition-all duration-300 z-40",
+            "fixed right-0 top-[57px] bottom-0 flex flex-col border-l border-[#1F1F26] bg-[#0F0F15] transition-all duration-300 z-40",
             isSidebarOpen ? "w-80" : "w-0"
           )}
         >
           {isSidebarOpen && (
             <>
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                <h2 className="text-sm font-semibold text-white">Comments</h2>
+              <div className="flex items-center justify-between px-4 py-4">
+                <h2 className="text-[11px] font-medium uppercase tracking-[1px] text-[#6B6B75]">
+                  Comments{comments.length > 0 && ` · ${comments.length}`}
+                </h2>
                 <button
                   onClick={() => {
                     setMode("browse");
                     setSelectedPinId(null);
                     setNewCommentPos(null);
                   }}
-                  className="text-slate-400 hover:text-white transition-colors"
+                  className="text-[#6B6B75] transition-colors hover:text-white"
                 >
-                  ✕
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
                 {isLoadingComments ? (
-                  <div className="flex h-full items-center justify-center p-4">
-                    <p className="text-center text-sm text-slate-500">
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-center text-[13px] text-[#6B6B75]">
                       Loading comments...
                     </p>
                   </div>
                 ) : comments.length === 0 ? (
-                  <div className="flex h-full flex-col items-center justify-center p-6">
-                    <MessageCircle className="h-12 w-12 text-slate-600 mb-4" />
-                    <h3 className="text-sm font-medium text-slate-300 mb-2">No comments yet</h3>
-                    <p className="text-center text-xs text-slate-500">
+                  <div className="flex h-full flex-col items-center justify-center">
+                    <MessageCircle className="mb-4 h-12 w-12 text-[#4A4A52]" />
+                    <h3 className="mb-2 text-[13px] font-medium text-white">No comments yet</h3>
+                    <p className="text-center text-xs text-[#6B6B75]">
                       Press{" "}
-                      <kbd className="inline-flex items-center justify-center rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-300">
+                      <kbd className="inline-flex items-center justify-center rounded bg-[#1A1A22] px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
                         C
                       </kbd>{" "}
                       to start commenting
                     </p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-white/5">
+                  <div className="space-y-2">
                     {[...comments]
                       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                       .map((comment) => (
@@ -1433,18 +1418,22 @@ export default function Home() {
                           onMouseEnter={() => setHoveredPinId(comment.id)}
                           onMouseLeave={() => setHoveredPinId(null)}
                           className={cn(
-                            "px-4 py-3 cursor-pointer border-l-2 transition-colors duration-150",
+                            "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150",
                             selectedPinId === comment.id
-                              ? "bg-purple-500/15 border-purple-500"
-                              : hoveredPinId === comment.id
-                                ? "bg-purple-500/15 border-purple-400"
-                                : "hover:bg-white/5 border-transparent"
+                              ? "bg-[#6E5BFF]"
+                              : "bg-[#1A1A22] hover:bg-[#22222C]"
                           )}
                         >
-                          <p className="text-sm text-white font-medium leading-relaxed">
+                          <p className={cn(
+                            "text-[13px] font-medium leading-relaxed",
+                            selectedPinId === comment.id ? "text-white" : "text-white"
+                          )}>
                             {comment.text}
                           </p>
-                          <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500">
+                          <div className={cn(
+                            "mt-1 flex items-center gap-2 text-[11px]",
+                            selectedPinId === comment.id ? "text-[#D6D0FF]" : "text-[#6B6B75]"
+                          )}>
                             <span>{comment.author}</span>
                             <span>·</span>
                             <span>{formatRelativeTime(comment.createdAt)}</span>
@@ -1472,35 +1461,25 @@ export default function Home() {
             }
           }}
           className={cn(
-            "fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-150 ease-out",
-            "bg-purple-600 text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)]",
-            "hover:scale-105 hover:bg-purple-500"
+            "fixed bottom-6 right-6 z-50 flex h-13 w-13 items-center justify-center rounded-full transition-all duration-150 ease-out",
+            "bg-[#6E5BFF] text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)]",
+            "hover:scale-105 hover:bg-[#8170FF]"
           )}
+          style={{ width: "52px", height: "52px" }}
         >
           {isSidebarOpen ? (
-            <X className="h-6 w-6" />
+            <X className="h-[22px] w-[22px]" strokeWidth={2.5} />
           ) : (
-            <MessageCircle className="h-6 w-6" />
+            <MessageCircle className="h-[22px] w-[22px]" strokeWidth={2.5} />
           )}
           {/* Comment count badge */}
           {!isSidebarOpen && comments.length > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1.5 text-xs font-bold text-purple-600">
+            <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-1 text-[11px] font-medium text-[#0A0A0F]">
               {comments.length}
             </span>
           )}
         </button>
 
-      {/* Pulse Animation Keyframes */}
-      <style jsx global>{`
-        @keyframes pulse {
-          0%, 100% {
-            box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.7);
-          }
-          50% {
-            box-shadow: 0 0 0 8px rgba(168, 85, 247, 0);
-          }
-        }
-      `}</style>
     </div>
   );
 }
