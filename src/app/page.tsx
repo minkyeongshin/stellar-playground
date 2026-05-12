@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { MessageCircle, X, Check } from "lucide-react";
+import { MessageCircle, X, Check, Pencil, Trash2, CheckCircle, CheckCircle2, RotateCcw, Send, Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -61,11 +61,14 @@ interface ImageDoc {
 type Mode = "browse" | "comment";
 
 // Constants
-const AUTHOR_KEY = "stellar-author-name";
 const URL_KEY = "stellar-current-url";
 const DEFAULT_URL = "https://stellarskills-git-main-minkyeongshins-projects.vercel.app";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+// Feature flag to hide the floating comments button (FAB)
+// Set to true to re-enable the button
+const SHOW_FLOATING_COMMENTS_BUTTON = false;
 
 // Utility: Get hostname from URL
 function getHostname(url: string): string {
@@ -157,13 +160,34 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
+// Reply type for local state
+interface LocalReply {
+  id: string;
+  text: string;
+  author: string;
+  createdAt: string;
+}
+
+// Avatar colors based on name
+function getAvatarColor(name: string): string {
+  const colors = [
+    "#6E5BFF", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
+    "#EC4899", "#06B6D4", "#84CC16", "#F97316", "#6366F1"
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
 // Comment Pin Component
 function CommentPin({
   comment,
   isSelected,
   isHighlighted,
-  isSidebarOpen,
-  currentContainerWidth,
+  currentAuthorName,
+  onSetAuthorName,
   onSelect,
   onHover,
   onEdit,
@@ -171,14 +195,13 @@ function CommentPin({
   onResolve,
   onReopen,
   onMove,
-  sidebarClickedRef,
   containerRef,
 }: {
   comment: Comment;
   isSelected: boolean;
   isHighlighted: boolean;
-  isSidebarOpen: boolean;
-  currentContainerWidth: number;
+  currentAuthorName: string;
+  onSetAuthorName: (name: string) => void;
   onSelect: (id: string | null) => void;
   onHover: (id: string | null) => void;
   onEdit: (id: string, text: string) => void;
@@ -186,16 +209,27 @@ function CommentPin({
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
-  sidebarClickedRef: React.RefObject<boolean | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  // Calculate adjusted x position to keep pin anchored when container resizes
-  const adjustedX = comment.containerWidth && currentContainerWidth > 0
-    ? (comment.x * comment.containerWidth / currentContainerWidth)
-    : comment.x;
+  // For URL mode: use simple percentage positioning
+  // (containerWidth adjustment doesn't help for responsive iframe content)
+  // For Image mode: percentage positioning works perfectly since images scale uniformly
+  const adjustedX = comment.x;
+  const adjustedY = comment.y;
   const [isLocalHover, setIsLocalHover] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
+
+  // Local replies state
+  const [replies, setReplies] = useState<LocalReply[]>([]);
+  const [replyText, setReplyText] = useState("");
+  const [pendingReplyName, setPendingReplyName] = useState(""); // Local name input - only saved on submit
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
+  const [editReplyText, setEditReplyText] = useState("");
+
+  // Reply name edit popover state
+  const [isReplyNameEditOpen, setIsReplyNameEditOpen] = useState(false);
+  const [replyNameEditInput, setReplyNameEditInput] = useState("");
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
@@ -203,6 +237,10 @@ function CommentPin({
   const localPositionRef = useRef<{ x: number; y: number } | null>(null);
   const justDraggedRef = useRef(false);
   const pinRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const replyInputRef = useRef<HTMLInputElement>(null);
+  const replyNameInputRef = useRef<HTMLInputElement>(null);
+  const replyNameEditInputRef = useRef<HTMLInputElement>(null);
   const dragStateRef = useRef<{
     startX: number;
     startY: number;
@@ -216,16 +254,21 @@ function CommentPin({
     localPositionRef.current = localPosition;
   }, [localPosition]);
 
-  const showHoverTooltip = isLocalHover && !isSelected && !isSidebarOpen && !isDragging;
   const isResolved = comment.resolved;
+
+  // Unified popover visibility: show on hover OR when selected
+  const showPopover = (isLocalHover || isSelected) && !isDragging;
+  // Expanded state: only when clicked (selected)
+  const isExpanded = isSelected;
 
   const DRAG_THRESHOLD = 8; // px
 
   // Handle mouse move - detect drag threshold and update position
-  // (defined first since handleMouseUp and handleMouseDown depend on it)
   const handleMouseMove = useCallback((e: MouseEvent) => {
     const state = dragStateRef.current;
-    if (!state || !containerRef.current) return;
+    if (!state || !containerRef.current) {
+      return;
+    }
 
     const dx = e.clientX - state.startX;
     const dy = e.clientY - state.startY;
@@ -265,7 +308,6 @@ function CommentPin({
   }, [containerRef]);
 
   // Handle mouse up - save position or open popover
-  // (defined second since handleMouseDown depends on it)
   const handleMouseUp = useCallback(() => {
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
@@ -277,13 +319,15 @@ function CommentPin({
     }
 
     const state = dragStateRef.current;
-    if (!state) return;
+    if (!state) {
+      return;
+    }
 
     // Read from ref to get latest position (avoids stale closure)
     const finalPosition = localPositionRef.current;
 
     if (state.hasDragged && finalPosition) {
-      // It was a drag - save new position, DO NOT open popover or sidebar
+      // It was a drag - save new position
       justDraggedRef.current = true;
 
       // Block the click event that fires after mouseup (capture phase, once)
@@ -296,7 +340,7 @@ function CommentPin({
       onMove(comment.id, finalPosition.x, finalPosition.y);
       setIsDragging(false);
       setLocalPosition(null);
-      setIsLocalHover(false); // Clear hover state to hide tooltip
+      setIsLocalHover(false);
 
       // Reset flag after click would have fired
       setTimeout(() => {
@@ -304,22 +348,28 @@ function CommentPin({
       }, 100);
 
       dragStateRef.current = null;
-      return; // Exit early - don't open popover or sidebar
+      return;
     }
 
-    // It was a click (no movement) - open popover AND sidebar
-    onSelect(comment.id);
+    // It was a click (no movement) - toggle expanded state
+    if (isSelected) {
+      // Already selected, clicking again closes it
+      onSelect(null);
+    } else {
+      onSelect(comment.id);
+    }
 
     dragStateRef.current = null;
-  }, [handleMouseMove, comment.id, onMove, onSelect]);
+  }, [handleMouseMove, comment.id, onMove, onSelect, isSelected]);
 
   // Handle mousedown - start tracking for potential drag
-  // (defined last since it depends on handleMouseMove and handleMouseUp)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!pinRef.current) return;
+    if (!pinRef.current) {
+      return;
+    }
 
     const pinRect = pinRef.current.getBoundingClientRect();
     const grabOffsetX = e.clientX - pinRect.left;
@@ -338,31 +388,66 @@ function CommentPin({
     document.addEventListener("mouseup", handleMouseUp);
   }, [handleMouseMove, handleMouseUp]);
 
-  // Handle Esc key to cancel drag
+  // Handle Esc key to cancel drag or close expanded state
   useEffect(() => {
-    if (!isDragging) return;
-
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // Cancel drag, revert to original position
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
+        if (isDragging) {
+          // Cancel drag, revert to original position
+          document.removeEventListener("mousemove", handleMouseMove);
+          document.removeEventListener("mouseup", handleMouseUp);
 
-        // Re-enable iframe pointer-events
-        const iframe = document.querySelector("iframe");
-        if (iframe) {
-          iframe.style.pointerEvents = "auto";
+          // Re-enable iframe pointer-events
+          const iframe = document.querySelector("iframe");
+          if (iframe) {
+            iframe.style.pointerEvents = "auto";
+          }
+
+          dragStateRef.current = null;
+          setIsDragging(false);
+          setLocalPosition(null);
+        } else if (isSelected) {
+          onSelect(null);
+          setIsEditing(false);
         }
-
-        dragStateRef.current = null;
-        setIsDragging(false);
-        setLocalPosition(null);
       }
     };
 
     document.addEventListener("keydown", handleEsc);
     return () => document.removeEventListener("keydown", handleEsc);
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, isSelected, handleMouseMove, handleMouseUp, onSelect]);
+
+  // Handle click outside to close expanded popover
+  useEffect(() => {
+    if (!isSelected) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+
+      // Don't close if clicking inside the popover
+      if (popoverRef.current?.contains(target)) {
+        return;
+      }
+
+      // Don't close if clicking the pin itself
+      if (pinRef.current?.contains(target)) {
+        return;
+      }
+
+      onSelect(null);
+      setIsEditing(false);
+    };
+
+    // Use setTimeout to avoid the click that just selected this pin
+    const timeoutId = setTimeout(() => {
+      document.addEventListener("click", handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [isSelected, onSelect]);
 
   // Reset local position when comment position changes (e.g., from Firestore update)
   useEffect(() => {
@@ -371,7 +456,45 @@ function CommentPin({
 
   // Current display position (local drag position or actual position)
   const displayX = isDragging && localPosition ? localPosition.x : adjustedX;
-  const displayY = isDragging && localPosition ? localPosition.y : comment.y;
+  const displayY = isDragging && localPosition ? localPosition.y : adjustedY;
+
+  // Popover position state for viewport collision detection
+  const [popoverPosition, setPopoverPosition] = useState<{
+    horizontal: "left" | "right";
+    vertical: "top" | "center" | "bottom";
+  }>({ horizontal: "right", vertical: "center" });
+
+  // Calculate optimal popover position based on pin location in viewport
+  useEffect(() => {
+    if (!showPopover || !pinRef.current) return;
+
+    const pinRect = pinRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const popoverWidth = 360; // max-width of popover
+    const popoverHeight = 300; // estimated max height
+    const offset = 12; // gap between pin and popover
+
+    // Check horizontal position
+    const spaceOnRight = viewportWidth - pinRect.right - offset;
+    const spaceOnLeft = pinRect.left - offset;
+    const horizontal: "left" | "right" = spaceOnRight >= popoverWidth ? "right" : "left";
+
+    // Check vertical position
+    const pinCenterY = pinRect.top + pinRect.height / 2;
+    const halfPopoverHeight = popoverHeight / 2;
+
+    let vertical: "top" | "center" | "bottom" = "center";
+    if (pinCenterY - halfPopoverHeight < 0) {
+      // Not enough space above, align to top
+      vertical = "top";
+    } else if (pinCenterY + halfPopoverHeight > viewportHeight) {
+      // Not enough space below, align to bottom
+      vertical = "bottom";
+    }
+
+    setPopoverPosition({ horizontal, vertical });
+  }, [showPopover, displayX, displayY]);
 
   // Pin colors: purple for active, gray for resolved
   const pinBgColor = isResolved ? "#4A4A52" : "#6E5BFF";
@@ -387,23 +510,80 @@ function CommentPin({
     }
   };
 
-  const handlePopoverChange = (open: boolean) => {
-    if (open) {
-      onSelect(comment.id);
-    } else {
-      // Don't deselect if the click was inside the sidebar
-      // Check both the ref (for general sidebar clicks) and the DOM (as fallback)
-      const sidebar = document.querySelector('[data-sidebar]');
-      const activeEl = document.activeElement;
-      const isClickInsideSidebar = sidebarClickedRef.current || (sidebar && activeEl && sidebar.contains(activeEl));
+  const handleAddReply = () => {
+    if (!replyText.trim()) return;
+    // Use saved name or pending name
+    const nameToUse = currentAuthorName?.trim() || pendingReplyName.trim();
+    if (!nameToUse) return;
 
-      if (isClickInsideSidebar) {
-        sidebarClickedRef.current = false;
-        return;
-      }
-      onSelect(null);
-      setIsEditing(false);
+    // If using pending name, save it now
+    if (!currentAuthorName?.trim() && pendingReplyName.trim()) {
+      onSetAuthorName(pendingReplyName.trim());
     }
+
+    const newReply: LocalReply = {
+      id: `reply-${Date.now()}`,
+      text: replyText.trim(),
+      author: nameToUse,
+      createdAt: new Date().toISOString(),
+    };
+    setReplies((prev) => [...prev, newReply]);
+    setReplyText("");
+    setPendingReplyName(""); // Clear pending name
+  };
+
+  const handleStartEditReply = (reply: LocalReply) => {
+    setEditingReplyId(reply.id);
+    setEditReplyText(reply.text);
+  };
+
+  const handleSaveEditReply = () => {
+    if (!editingReplyId || !editReplyText.trim()) return;
+    setReplies((prev) =>
+      prev.map((r) =>
+        r.id === editingReplyId ? { ...r, text: editReplyText.trim() } : r
+      )
+    );
+    setEditingReplyId(null);
+    setEditReplyText("");
+  };
+
+  const handleCancelEditReply = () => {
+    setEditingReplyId(null);
+    setEditReplyText("");
+  };
+
+  const handleDeleteReply = (replyId: string) => {
+    setReplies((prev) => prev.filter((r) => r.id !== replyId));
+  };
+
+  // Reply name edit popover handlers
+  const handleOpenReplyNameEdit = () => {
+    setReplyNameEditInput(currentAuthorName || "");
+    setIsReplyNameEditOpen(true);
+    setTimeout(() => {
+      if (replyNameEditInputRef.current) {
+        replyNameEditInputRef.current.focus();
+        replyNameEditInputRef.current.select();
+      }
+    }, 0);
+  };
+
+  const handleSaveReplyNameEdit = () => {
+    if (!replyNameEditInput.trim()) return;
+    onSetAuthorName(replyNameEditInput.trim());
+    setPendingReplyName(""); // Clear pending since we now have a saved name
+    setIsReplyNameEditOpen(false);
+  };
+
+  const handleCancelReplyNameEdit = () => {
+    setIsReplyNameEditOpen(false);
+    setReplyNameEditInput("");
+  };
+
+  // Get author initials for avatar
+  const getInitials = (name: string) => {
+    return name.charAt(0).toUpperCase();
   };
 
   return (
@@ -416,7 +596,7 @@ function CommentPin({
         left: `${displayX}%`,
         top: `${displayY}%`,
         transform: "translate(-50%, -50%)",
-        transition: isDragging ? "none" : "left 150ms ease, top 150ms ease, opacity 150ms ease",
+        transition: isDragging ? "none" : "left 150ms ease, top 150ms ease",
         userSelect: "none",
       }}
       onMouseEnter={() => {
@@ -432,139 +612,509 @@ function CommentPin({
         }
       }}
     >
-      <Popover open={isSelected && !isDragging} onOpenChange={handlePopoverChange}>
-        <PopoverTrigger
-          ref={pinRef}
+      {/* Pin button - avatar(s) with speech bubble tail */}
+      {(() => {
+        // Calculate unique participants (most recent first for display order)
+        const allAuthors = [comment.author, ...replies.map(r => r.author)];
+        const uniqueParticipants = [...new Set(allAuthors)];
+        const participantCount = uniqueParticipants.length;
+
+        // For display: show most recent 2 participants
+        // Front avatar = most recent participant, Back avatar = second most recent
+        const recentParticipants = [...uniqueParticipants].reverse().slice(0, 2);
+        const frontParticipant = recentParticipants[0] || comment.author;
+        const backParticipant = recentParticipants[1];
+
+        // Calculate width based on participant count
+        const avatarSize = 28;
+        const overlap = 10; // px overlap between avatars
+        const badgeWidth = participantCount > 2 ? 28 : 0;
+        const badgeGap = participantCount > 2 ? 2 : 0;
+
+        let totalWidth = avatarSize; // 1 participant
+        if (participantCount >= 2) {
+          totalWidth = avatarSize * 2 - overlap; // 2 overlapping avatars
+        }
+        if (participantCount > 2) {
+          totalWidth += badgeGap + badgeWidth; // + badge
+        }
+
+        // Calculate total button width based on participant count
+        let totalButtonWidth = avatarSize; // 1 participant
+        if (participantCount >= 2) {
+          totalButtonWidth = avatarSize * 2 - overlap;
+        }
+        if (participantCount > 2) {
+          totalButtonWidth += badgeGap + badgeWidth;
+        }
+
+        return (
+          <button
+            ref={pinRef}
+            type="button"
+            className="relative transition-all duration-150"
+            style={{
+              width: `${totalButtonWidth}px`,
+              height: `${avatarSize}px`,
+              cursor: isDragging ? "grabbing" : "grab",
+              userSelect: "none",
+              transform: isDragging
+                ? "scale(1.05)"
+                : isSelected || isHighlighted
+                  ? "scale(1.05)"
+                  : undefined,
+              transition: isDragging ? "none" : "transform 150ms ease",
+            }}
+            onMouseDown={handleMouseDown}
+          >
+            {/* Back avatar (second participant) - plain circle, only show if 2+ participants */}
+            {participantCount >= 2 && backParticipant && (
+              <div
+                className="absolute flex items-center justify-center rounded-full"
+                style={{
+                  width: `${avatarSize}px`,
+                  height: `${avatarSize}px`,
+                  left: `${avatarSize - overlap}px`,
+                  top: 0,
+                  zIndex: 1,
+                  backgroundColor: getAvatarColor(backParticipant),
+                  boxShadow: isLocalHover || isSelected || isHighlighted
+                    ? "0 2px 8px rgba(0, 0, 0, 0.25)"
+                    : "0 2px 6px rgba(0, 0, 0, 0.15)",
+                }}
+              >
+                <span
+                  className="text-[11px] font-semibold text-white"
+                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.2)" }}
+                >
+                  {getInitials(backParticipant)}
+                </span>
+              </div>
+            )}
+
+            {/* Front avatar - plain circle */}
+            <div
+              className="absolute flex items-center justify-center rounded-full"
+              style={{
+                width: `${avatarSize}px`,
+                height: `${avatarSize}px`,
+                left: 0,
+                top: 0,
+                zIndex: 2,
+                backgroundColor: getAvatarColor(frontParticipant),
+                boxShadow: isLocalHover || isSelected || isHighlighted
+                  ? "0 2px 8px rgba(0, 0, 0, 0.25)"
+                  : "0 2px 6px rgba(0, 0, 0, 0.15)",
+              }}
+            >
+              <span
+                className="text-[11px] font-semibold text-white"
+                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.2)" }}
+              >
+                {getInitials(frontParticipant)}
+              </span>
+            </div>
+
+            {/* "+N" badge for 3+ participants */}
+            {participantCount > 2 && (
+              <div
+                className="absolute flex items-center justify-center rounded-full"
+                style={{
+                  width: `${badgeWidth}px`,
+                  height: `${avatarSize}px`,
+                  left: `${avatarSize * 2 - overlap + badgeGap}px`,
+                  top: 0,
+                  zIndex: 1,
+                  backgroundColor: "#F0F0F0",
+                  boxShadow: "0 2px 6px rgba(0, 0, 0, 0.1)",
+                }}
+              >
+                <span className="text-[11px] font-semibold text-[#333]">
+                  +{participantCount - 2}
+                </span>
+              </div>
+            )}
+          </button>
+        );
+      })()}
+
+      {/* Unified popover - same container for hover and click */}
+      {showPopover && (
+        <div
+          ref={popoverRef}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-full transition-all duration-150",
-            isDragging
-              ? "scale-110 opacity-80"
-              : isSelected
-                ? "scale-110 shadow-lg"
-                : isHighlighted
-                  ? "scale-[1.3]"
-                  : "shadow-lg hover:scale-110"
+            "absolute z-50 rounded-2xl border border-[#E5E7EB] bg-white",
+            // Horizontal positioning
+            popoverPosition.horizontal === "right" ? "left-full ml-3" : "right-full mr-3",
+            // Vertical positioning
+            popoverPosition.vertical === "center" && "top-1/2",
+            popoverPosition.vertical === "top" && "top-0",
+            popoverPosition.vertical === "bottom" && "bottom-0"
           )}
           style={{
-            backgroundColor: pinBgColor,
-            boxShadow: isDragging
-              ? "0 4px 12px rgba(0, 0, 0, 0.4)"
-              : isSelected
-                ? `0 10px 15px -3px rgba(0,0,0,0.1), 0 0 0 2px ${pinRingColor}`
-                : isHighlighted
-                  ? pinHighlightShadow
-                  : undefined,
-            cursor: isDragging ? "grabbing" : "grab",
-            userSelect: "none",
-            transition: isDragging ? "none" : "transform 150ms ease, box-shadow 150ms ease",
+            transform: popoverPosition.vertical === "center" ? "translateY(-50%)" : undefined,
+            width: "min(360px, calc(100vw - 32px))",
+            maxWidth: "360px",
+            boxShadow: "0 8px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06)",
           }}
-          onMouseDown={handleMouseDown}
-        >
-          <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
-        </PopoverTrigger>
-        <PopoverContent
-          side="right"
-          className="w-64 rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3"
+          onClick={(e) => e.stopPropagation()}
         >
           {isEditing ? (
-            <div className="space-y-2">
-              <input
+            // Edit mode
+            <div className="p-4 space-y-3">
+              <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="w-full rounded-full border-none bg-[#22222C] px-3 py-2 text-sm text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                className="w-full rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5 text-[14px] text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/20 focus:border-[#6E5BFF]/30 resize-none"
                 placeholder="Edit comment..."
+                rows={3}
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSaveEdit();
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSaveEdit();
+                  }
                   if (e.key === "Escape") setIsEditing(false);
                 }}
               />
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSaveEdit}
-                  className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF]"
-                >
-                  Save
-                </button>
+              <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => setIsEditing(false)}
-                  className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
+                  className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-[#6B7280] transition-all hover:bg-[#F3F4F6]"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="rounded-lg bg-[#6E5BFF] px-4 py-1.5 text-[13px] font-medium text-white transition-all hover:bg-[#5B4AE6]"
+                >
+                  Save
                 </button>
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm font-medium text-white">{comment.text}</p>
-                <div className="mt-1 flex items-center gap-2 text-xs text-[#6B6B75]">
-                  <span>{comment.author}</span>
-                  <span>·</span>
-                  <span>{formatRelativeTime(comment.createdAt)}</span>
+            // View mode - consistent layout for both hover and expanded
+            <div>
+              {/* Main comment section */}
+              <div className="p-4">
+                {/* Header row: Avatar + Content + Actions */}
+                <div className="flex items-start gap-3">
+                  {/* Avatar - consistent size */}
+                  <div
+                    className="flex-shrink-0 flex items-center justify-center rounded-full text-white text-[13px] font-semibold"
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      backgroundColor: getAvatarColor(comment.author),
+                    }}
+                  >
+                    {getInitials(comment.author)}
+                  </div>
+
+                  {/* Content area */}
+                  <div className="flex-1 min-w-0">
+                    {/* Author, timestamp, and actions row */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[14px] font-semibold text-[#1F2937]">
+                          {comment.author}
+                        </span>
+                        <span className="text-[12px] text-[#9CA3AF]">
+                          {formatRelativeTime(comment.createdAt)}
+                        </span>
+                      </div>
+
+                      {/* Action icons */}
+                      <div className="flex items-center gap-0.5 flex-shrink-0 -mr-1">
+                        {/* Edit - only in expanded */}
+                        {isExpanded && (
+                          <button
+                            onClick={() => setIsEditing(true)}
+                            className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        )}
+                        {/* Resolve/Reopen - always visible */}
+                        {isResolved ? (
+                          <button
+                            onClick={() => onReopen(comment.id)}
+                            className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                            title="Reopen"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onResolve(comment.id)}
+                            className="p-1.5 rounded-lg hover:bg-[#DCFCE7] text-[#9CA3AF] hover:text-[#16A34A] transition-colors"
+                            title="Resolve"
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                          </button>
+                        )}
+                        {/* Delete - only in expanded */}
+                        {isExpanded && (
+                          <button
+                            onClick={() => {
+                              onDelete(comment.id);
+                              onSelect(null);
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-[#FEE2E2] text-[#9CA3AF] hover:text-[#DC2626] transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Comment text */}
+                    <p className="mt-1.5 text-[14px] leading-[1.5] text-[#374151]">
+                      {comment.text}
+                    </p>
+
+                    {/* Resolved badge */}
+                    {isResolved && (
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#F0FDF4] px-2.5 py-1">
+                        <Check className="h-3.5 w-3.5 text-[#16A34A]" />
+                        <span className="text-[11px] font-medium text-[#16A34A]">Resolved</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
-                >
-                  Edit
-                </button>
-                {isResolved ? (
-                  <button
-                    onClick={() => {
-                      onReopen(comment.id);
-                      onSelect(null);
-                    }}
-                    className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
-                  >
-                    Reopen
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      onResolve(comment.id);
-                      onSelect(null);
-                    }}
-                    className="rounded-full bg-[#1A2F26] px-3 py-1.5 text-xs font-medium text-[#5DCAA5] transition-all hover:bg-[#224036]"
-                  >
-                    Resolve
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    onDelete(comment.id);
-                    onSelect(null);
-                  }}
-                  className="rounded-full bg-[#3A1F22] px-3 py-1.5 text-xs font-medium text-[#F09595] transition-all hover:bg-[#4A2A2D]"
-                >
-                  Delete
-                </button>
-              </div>
+
+              {/* Replies section - only in expanded state */}
+              {isExpanded && replies.length > 0 && (
+                <div className="border-t border-[#F3F4F6]">
+                  {replies.map((reply) => {
+                    const isOwnReply = reply.author === currentAuthorName;
+                    const isEditingThis = editingReplyId === reply.id;
+
+                    return (
+                      <div key={reply.id} className="flex items-start gap-3 px-4 py-3 group">
+                        <div
+                          className="flex-shrink-0 flex items-center justify-center rounded-full text-white text-[11px] font-semibold"
+                          style={{
+                            width: "26px",
+                            height: "26px",
+                            backgroundColor: getAvatarColor(reply.author),
+                          }}
+                        >
+                          {getInitials(reply.author)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[13px] font-semibold text-[#1F2937]">
+                                {reply.author}
+                              </span>
+                              <span className="text-[11px] text-[#9CA3AF]">
+                                {formatRelativeTime(reply.createdAt)}
+                              </span>
+                            </div>
+                            {/* Edit/Delete icons - only for own replies */}
+                            {isOwnReply && !isEditingThis && (
+                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => handleStartEditReply(reply)}
+                                  className="p-1 rounded-lg hover:bg-[#F3F4F6] text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                                  title="Edit"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteReply(reply.id)}
+                                  className="p-1 rounded-lg hover:bg-[#FEE2E2] text-[#9CA3AF] hover:text-[#DC2626] transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {isEditingThis ? (
+                            <div className="mt-1 space-y-2">
+                              <input
+                                type="text"
+                                value={editReplyText}
+                                onChange={(e) => setEditReplyText(e.target.value)}
+                                className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1.5 text-[13px] text-[#1F2937] outline-none focus:ring-2 focus:ring-[#6E5BFF]/20 focus:border-[#6E5BFF]/30"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleSaveEditReply();
+                                  }
+                                  if (e.key === "Escape") {
+                                    handleCancelEditReply();
+                                  }
+                                }}
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  onClick={handleCancelEditReply}
+                                  className="px-2.5 py-1 text-[12px] font-medium text-[#6B7280] hover:bg-[#F3F4F6] rounded-lg transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={handleSaveEditReply}
+                                  className="px-2.5 py-1 text-[12px] font-medium text-white bg-[#6E5BFF] hover:bg-[#5B4AD9] rounded-lg transition-colors"
+                                >
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-[13px] leading-[1.5] text-[#374151]">
+                              {reply.text}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Reply input - only in expanded state */}
+              {isExpanded && (() => {
+                const effectiveReplyName = currentAuthorName?.trim() || pendingReplyName.trim();
+                const isReplyNameValid = effectiveReplyName.length > 0;
+                const isAnonymousReply = !currentAuthorName?.trim() && !pendingReplyName.trim();
+
+                return (
+                  <div className="border-t border-[#F3F4F6] px-4 py-3">
+                    {/* Inline name input - shown when no saved name exists */}
+                    {!currentAuthorName?.trim() && (
+                      <div className="mb-2">
+                        <input
+                          ref={replyNameInputRef}
+                          type="text"
+                          value={pendingReplyName}
+                          onChange={(e) => setPendingReplyName(e.target.value)}
+                          className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                          placeholder="Your name"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && pendingReplyName.trim()) {
+                              e.preventDefault();
+                              replyInputRef.current?.focus();
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="flex-shrink-0 flex items-center justify-center rounded-full"
+                        style={{
+                          width: "26px",
+                          height: "26px",
+                          backgroundColor: isAnonymousReply ? "#D4D4D4" : getAvatarColor(effectiveReplyName),
+                        }}
+                      >
+                        {isAnonymousReply ? (
+                          <MessageCircle className="h-3 w-3" style={{ color: "#666" }} />
+                        ) : (
+                          <span className="text-[11px] font-semibold text-white">
+                            {getInitials(effectiveReplyName)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex-1 flex items-center gap-2 rounded-xl bg-[#F9FAFB] px-3 py-2">
+                        <input
+                          ref={replyInputRef}
+                          type="text"
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder="Reply…"
+                          className="flex-1 bg-transparent text-[13px] text-[#1F2937] outline-none placeholder:text-[#9CA3AF]"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && replyText.trim() && isReplyNameValid) {
+                              e.preventDefault();
+                              handleAddReply();
+                            }
+                          }}
+                        />
+                        {replyText.trim() && isReplyNameValid && (
+                          <button
+                            onClick={handleAddReply}
+                            className="p-1 rounded-lg hover:bg-[#E5E7EB] text-[#6E5BFF] transition-colors"
+                          >
+                            <Send className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* Posting as footer with name edit */}
+                    {effectiveReplyName && (
+                      <div className="mt-2 flex items-center gap-1">
+                        <span className="text-[11px] text-[#9CA3AF]">
+                          Posting as {effectiveReplyName}
+                        </span>
+                        <Popover open={isReplyNameEditOpen} onOpenChange={setIsReplyNameEditOpen}>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={handleOpenReplyNameEdit}
+                              className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            className="w-60 p-3"
+                            align="start"
+                            side="top"
+                            sideOffset={8}
+                          >
+                            <input
+                              ref={replyNameEditInputRef}
+                              type="text"
+                              value={replyNameEditInput}
+                              onChange={(e) => setReplyNameEditInput(e.target.value)}
+                              className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                              placeholder="Your name"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && replyNameEditInput.trim()) {
+                                  e.preventDefault();
+                                  handleSaveReplyNameEdit();
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  handleCancelReplyNameEdit();
+                                }
+                              }}
+                            />
+                            <div className="mt-2 flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={handleCancelReplyNameEdit}
+                                className="rounded-full bg-[#F3F4F6] px-3 py-1.5 text-xs font-medium text-[#1F2937] transition-all hover:bg-[#E5E7EB]"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSaveReplyNameEdit}
+                                disabled={!replyNameEditInput.trim()}
+                                className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
-        </PopoverContent>
-      </Popover>
-
-      {showHoverTooltip && (
-        <div
-          className="pointer-events-none absolute left-1/2 bottom-full mb-3 z-50"
-          style={{ transform: "translateX(-50%)" }}
-        >
-          <div className="relative min-w-[260px] max-w-[340px] rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-4 shadow-2xl">
-            <p className="text-sm font-medium leading-relaxed text-white whitespace-pre-wrap">
-              {comment.text}
-            </p>
-            <div className="mt-3 flex items-center gap-1.5 text-xs text-[#6B6B75]">
-              <span>{comment.author}</span>
-              <span>·</span>
-              <span>{formatRelativeTime(comment.createdAt)}</span>
-            </div>
-            <div className="absolute left-1/2 -bottom-2 -translate-x-1/2">
-              <div className="h-3 w-3 rotate-45 border-b border-r border-[#1F1F26] bg-[#1A1A22]" />
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -612,24 +1162,46 @@ export default function Home() {
 
   // Shared comment state
   const [comments, setComments] = useState<Comment[]>([]);
-  const [mode, setMode] = useState<Mode>("browse");
+  // Default to comment mode - users can place comments immediately
+  const [mode, setMode] = useState<Mode>("comment");
   const [newCommentPos, setNewCommentPos] = useState<{ x: number; y: number } | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
-  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  const [pendingNameInput, setPendingNameInput] = useState(""); // Local name input - only saved on submit
+  const [isNameEditOpen, setIsNameEditOpen] = useState(false); // Name edit popover state
+  const [nameEditInput, setNameEditInput] = useState(""); // Temp input for name edit
+  const [selectedPinId, setSelectedPinIdRaw] = useState<string | null>(null);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
   const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [commentsVisible, setCommentsVisible] = useState(true);
+  const [newCommentPopupPosition, setNewCommentPopupPosition] = useState<{
+    horizontal: "left" | "right";
+    vertical: "top" | "center" | "bottom";
+  }>({ horizontal: "right", vertical: "center" });
 
-  // Comment hint state
-  const [hasSeenCommentHint, setHasSeenCommentHint] = useState(false);
-  const [showCommentHint, setShowCommentHint] = useState(false);
+  // Wrapper to log selectedPinId changes
+  const setSelectedPinId = useCallback((id: string | null) => {
+    console.log('[PARENT] setSelectedPinId called with:', id);
+    if (id === null) {
+      console.trace('[PARENT] STACK TRACE — who is calling setSelectedPinId(null)?');
+    }
+    setSelectedPinIdRaw(id);
+  }, []);
+
 
   // Sidebar filter state - true = show resolved, false = show active
   const [showResolved, setShowResolved] = useState(false);
 
-  const isSidebarOpen = mode === "comment" || selectedPinId !== null;
-  const isNameValid = authorName.trim().length > 0;
+  // Sidebar is disabled for now - comment mode doesn't open sidebar
+  // Set to `mode === "comment"` to re-enable sidebar with comment mode
+  const isSidebarOpen = false;
+
+  // Debug render log
+  console.log('[RENDER] selectedPinId:', selectedPinId, 'isSidebarOpen:', isSidebarOpen, 'mode:', mode);
+  // Name is valid if either saved (authorName) or pending input is filled
+  const effectiveName = authorName?.trim() || pendingNameInput.trim();
+  const isNameValid = effectiveName.length > 0;
 
   // Reset filter to default (active) when sidebar opens
   const prevSidebarOpen = useRef(false);
@@ -644,6 +1216,8 @@ export default function Home() {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const newCommentInputRef = useRef<HTMLInputElement>(null);
+  const inlineNameInputRef = useRef<HTMLInputElement>(null);
+  const nameEditInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isUrlCommittedRef = useRef(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -690,27 +1264,18 @@ export default function Home() {
     const imageParam = getImageFromQueryParam();
 
     if (imageParam) {
-      // Image mode - load author name from localStorage
-      const savedAuthor = localStorage.getItem(AUTHOR_KEY);
-      if (savedAuthor) {
-        setAuthorName(savedAuthor);
-      }
+      // Image mode
       setViewMode("image");
       setCurrentImageId(imageParam);
     } else if (urlParam) {
-      // URL mode with query param - load author name from localStorage
-      const savedAuthor = localStorage.getItem(AUTHOR_KEY);
-      if (savedAuthor) {
-        setAuthorName(savedAuthor);
-      }
+      // URL mode with query param
       const normalizedUrl = normalizeUrl(urlParam);
       setViewMode("url");
       setCurrentUrl(normalizedUrl);
       setUrlInput(getDisplayUrl(normalizedUrl));
       updateBrowserUrl({ url: getDisplayUrl(normalizedUrl) });
     } else {
-      // Landing page - do NOT pre-fill any inputs from localStorage
-      // Both URL and name inputs should be empty
+      // Landing page
       setViewMode("landing");
     }
 
@@ -828,19 +1393,54 @@ export default function Home() {
     }
   }, [currentUrl, isHydrated, viewMode]);
 
-  // Save author name to localStorage
+  // Focus new comment input (or name input if no name) when popup appears
   useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem(AUTHOR_KEY, authorName);
-    }
-  }, [authorName, isHydrated]);
-
-  // Focus new comment input when popup appears
-  useEffect(() => {
-    if (newCommentPos && newCommentInputRef.current) {
-      newCommentInputRef.current.focus();
+    if (newCommentPos) {
+      // Use setTimeout to allow React to render the inputs first
+      setTimeout(() => {
+        if (inlineNameInputRef.current) {
+          inlineNameInputRef.current.focus();
+        } else if (newCommentInputRef.current) {
+          newCommentInputRef.current.focus();
+        }
+      }, 0);
     }
   }, [newCommentPos]);
+
+  // Calculate optimal position for new comment popup based on viewport
+  useEffect(() => {
+    if (!newCommentPos) return;
+
+    const container = viewMode === "image" ? imageContainerRef.current : containerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const popupWidth = 280; // width of popup (w-70 = ~280px with max-width 320px)
+    const popupHeight = 100; // estimated height
+    const offset = 12;
+
+    // Calculate pixel position of the pin
+    const pinX = containerRect.left + (newCommentPos.x / 100) * containerRect.width;
+    const pinY = containerRect.top + (newCommentPos.y / 100) * containerRect.height;
+
+    // Check horizontal space
+    const spaceOnRight = viewportWidth - pinX - offset;
+    const spaceOnLeft = pinX - offset;
+    const horizontal: "left" | "right" = spaceOnRight >= popupWidth ? "right" : "left";
+
+    // Check vertical position
+    const halfPopupHeight = popupHeight / 2;
+    let vertical: "top" | "center" | "bottom" = "center";
+    if (pinY - halfPopupHeight < 0) {
+      vertical = "top";
+    } else if (pinY + halfPopupHeight > viewportHeight) {
+      vertical = "bottom";
+    }
+
+    setNewCommentPopupPosition({ horizontal, vertical });
+  }, [newCommentPos, viewMode]);
 
   // Handle Escape key
   useEffect(() => {
@@ -891,42 +1491,20 @@ export default function Home() {
           setMode("comment");
         }
       }
+
+      if (e.key === "h" || e.key === "H") {
+        // Toggle comment visibility
+        setCommentsVisible((prev) => !prev);
+      }
     };
 
     window.addEventListener("keydown", handleCommentShortcut);
     return () => window.removeEventListener("keydown", handleCommentShortcut);
   }, [mode, viewMode]);
 
-  // Handle comment mode hint visibility
-  useEffect(() => {
-    if (mode === "comment" && !newCommentPos) {
-      // Entering comment mode without a comment placed
-      if (!hasSeenCommentHint) {
-        setShowCommentHint(true);
-        // Auto-dismiss after 3 seconds
-        const timer = setTimeout(() => {
-          setShowCommentHint(false);
-          setHasSeenCommentHint(true);
-        }, 3000);
-        return () => clearTimeout(timer);
-      }
-    } else {
-      // Exiting comment mode or comment placed
-      setShowCommentHint(false);
-    }
-  }, [mode, newCommentPos, hasSeenCommentHint]);
-
   // Navigate to URL mode
   const navigateToUrl = useCallback((newUrl: string) => {
     const normalizedUrl = normalizeUrl(newUrl);
-
-    // If navigating from landing and user hasn't entered a name, load from localStorage
-    if (viewMode === "landing" && !authorName.trim()) {
-      const savedAuthor = localStorage.getItem(AUTHOR_KEY);
-      if (savedAuthor) {
-        setAuthorName(savedAuthor);
-      }
-    }
 
     setViewMode("url");
     setCurrentUrl(normalizedUrl);
@@ -938,7 +1516,7 @@ export default function Home() {
     setImageDoc(null);
 
     updateBrowserUrl({ url: getDisplayUrl(normalizedUrl), image: null });
-  }, [viewMode, authorName, setAuthorName, setViewMode, setUrlInput]);
+  }, [setViewMode, setUrlInput]);
 
   // Handle URL input key events
   const handleUrlKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -965,11 +1543,6 @@ export default function Home() {
     }
     setUrlInput(getDisplayUrl(currentUrl));
   }, [currentUrl, setUrlInput, setIsUrlFocused]);
-
-  // Focus name input
-  const focusNameInput = () => {
-    nameInputRef.current?.focus();
-  };
 
   // Handle file upload
   const handleFileUpload = async (file: File) => {
@@ -1080,12 +1653,8 @@ export default function Home() {
       setSelectedPinId(null);
     }
 
-    if (mode === "comment") {
-      if (!isNameValid) {
-        focusNameInput();
-        return;
-      }
-
+    // Only allow comment placement if comments are visible and in comment mode
+    if (mode === "comment" && commentsVisible) {
       const container = viewMode === "image" ? imageContainerRef.current : containerRef.current;
       if (!container) return;
 
@@ -1100,21 +1669,23 @@ export default function Home() {
 
   // Post new comment
   const handlePostComment = async () => {
-    if (!newCommentPos || !newCommentText.trim() || !currentTargetId) return;
-
-    if (!isNameValid) {
-      focusNameInput();
-      return;
-    }
+    // Require both name and comment text
+    const nameToUse = authorName?.trim() || pendingNameInput.trim();
+    if (!newCommentPos || !newCommentText.trim() || !currentTargetId || !nameToUse) return;
 
     try {
+      // If using pending name, save it to localStorage now
+      if (!authorName?.trim() && pendingNameInput.trim()) {
+        setAuthorName(pendingNameInput.trim());
+      }
+
       const commentData: Record<string, unknown> = {
         targetType: currentTargetType,
         targetId: currentTargetId,
         x: newCommentPos.x,
         y: newCommentPos.y,
         text: newCommentText.trim(),
-        author: authorName.trim(),
+        author: nameToUse,
         createdAt: serverTimestamp(),
         resolved: false,
         containerWidth: containerWidth,
@@ -1128,8 +1699,8 @@ export default function Home() {
       await addDoc(collection(db, "comments"), commentData);
       setNewCommentPos(null);
       setNewCommentText("");
-      // Exit comment mode after posting
-      setMode("browse");
+      setPendingNameInput(""); // Clear pending name input
+      // Stay in comment mode so user can place more comments
     } catch (error) {
       console.error("Error adding comment:", error);
     }
@@ -1139,6 +1710,32 @@ export default function Home() {
   const handleCancelNewComment = () => {
     setNewCommentPos(null);
     setNewCommentText("");
+    setPendingNameInput(""); // Discard pending name on cancel
+  };
+
+  // Name edit popover handlers
+  const handleOpenNameEdit = () => {
+    setNameEditInput(effectiveName);
+    setIsNameEditOpen(true);
+    // Focus and select after popover renders
+    setTimeout(() => {
+      if (nameEditInputRef.current) {
+        nameEditInputRef.current.focus();
+        nameEditInputRef.current.select();
+      }
+    }, 0);
+  };
+
+  const handleSaveNameEdit = () => {
+    if (!nameEditInput.trim()) return;
+    setAuthorName(nameEditInput.trim());
+    setPendingNameInput(""); // Clear pending since we now have a saved name
+    setIsNameEditOpen(false);
+  };
+
+  const handleCancelNameEdit = () => {
+    setIsNameEditOpen(false);
+    setNameEditInput("");
   };
 
   // Edit comment
@@ -1242,24 +1839,26 @@ export default function Home() {
 
   // Single return - nav is rendered in layout, we just render the content
   return (
-    <div className="flex flex-1 flex-col bg-[#0A0A0F]">
+    <div className="flex flex-1 flex-col bg-[#FAFAFA]">
       {/* Landing page content */}
       {isLanding && (
         <>
           {/* Body - centered muted text */}
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-[14px] font-normal text-[#4A4A52]">
+            <p className="text-[14px] font-normal text-[#9CA3AF]">
               Enter your demo site URL to start commenting
             </p>
           </div>
 
           {/* Muted FAB */}
-          <div
-            className="fixed bottom-6 right-6 z-50 flex items-center justify-center rounded-full opacity-50 cursor-not-allowed"
-            style={{ width: "52px", height: "52px", backgroundColor: "#6E5BFF" }}
-          >
-            <MessageCircle className="h-[22px] w-[22px] text-white" strokeWidth={2.5} />
-          </div>
+          {SHOW_FLOATING_COMMENTS_BUTTON && (
+            <div
+              className="fixed bottom-6 right-6 z-50 flex items-center justify-center rounded-full opacity-50 cursor-not-allowed"
+              style={{ width: "52px", height: "52px", backgroundColor: "#6E5BFF" }}
+            >
+              <MessageCircle className="h-[22px] w-[22px] text-white" strokeWidth={2.5} />
+            </div>
+          )}
         </>
       )}
 
@@ -1280,48 +1879,48 @@ export default function Home() {
               {viewMode === "url" && (
                 <div ref={containerRef} className="relative">
                   {iframeError ? (
-                    <div className="flex h-[500px] w-full flex-col items-center justify-center bg-[#0A0A0F] text-center">
-                      <div className="rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-8">
-                        <div className="mb-4 text-4xl">🚫</div>
-                        <h2 className="mb-2 text-xl font-semibold text-white">
-                          This site cannot be embedded
-                        </h2>
-                        <p className="mb-4 max-w-md text-[#6B6B75]">
-                          Try uploading a screenshot instead, or open{" "}
-                          <a
-                            href={currentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[#6E5BFF] hover:text-[#8170FF] underline"
+                      <div className="flex h-[500px] w-full flex-col items-center justify-center bg-[#FAFAFA] text-center">
+                        <div className="rounded-xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
+                          <div className="mb-4 text-4xl">🚫</div>
+                          <h2 className="mb-2 text-xl font-semibold text-[#1F2937]">
+                            This site cannot be embedded
+                          </h2>
+                          <p className="mb-4 max-w-md text-[#6B7280]">
+                            Try uploading a screenshot instead, or open{" "}
+                            <a
+                              href={currentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[#6E5BFF] hover:text-[#8170FF] underline"
+                            >
+                              {getDisplayUrl(currentUrl)}
+                            </a>{" "}
+                            in a new tab.
+                          </p>
+                          <button
+                            onClick={goToLanding}
+                            className="rounded-full bg-[#F3F4F6] px-4 py-2 text-sm font-medium text-[#1F2937] transition-all hover:bg-[#E5E7EB]"
                           >
-                            {getDisplayUrl(currentUrl)}
-                          </a>{" "}
-                          in a new tab.
-                        </p>
-                        <button
-                          onClick={goToLanding}
-                          className="rounded-full bg-[#22222C] px-4 py-2 text-sm font-medium text-white transition-all hover:bg-[#2A2A33]"
-                        >
-                          Upload Screenshot Instead
-                        </button>
+                            Upload Screenshot Instead
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <iframe
-                      key={currentUrl}
-                      src={currentUrl}
-                      className="w-full border-0"
-                      style={{ height: "3000px" }}
-                      title="Target Website"
-                      onError={() => setIframeError(true)}
-                    />
-                  )}
+                    ) : (
+                      <iframe
+                        key={currentUrl}
+                        src={currentUrl}
+                        className="w-full border-0"
+                        style={{ height: "3000px" }}
+                        title="Target Website"
+                        onError={() => setIframeError(true)}
+                      />
+                    )}
 
                   {/* Overlay */}
                   <div
                     className={cn(
                       "absolute inset-0",
-                      mode === "comment"
+                      mode === "comment" && commentsVisible
                         ? "cursor-crosshair pointer-events-auto"
                         : selectedPinId !== null
                           ? "pointer-events-auto"
@@ -1329,24 +1928,25 @@ export default function Home() {
                     )}
                     onClick={handleOverlayClick}
                     onMouseMove={(e) => {
-                      if (mode === "comment" && !newCommentPos) {
+                      if (mode === "comment" && commentsVisible && !newCommentPos) {
                         setCursorPos({ x: e.clientX, y: e.clientY });
                       }
                     }}
                     onMouseLeave={() => setCursorPos(null)}
                   />
 
-                  {/* Comment Pins - filtered by resolved state */}
-                  {comments
-                    .filter((comment) => comment.resolved === showResolved)
+                  {/* Comment Pins - filtered by resolved state and visibility */}
+                  {/* When showResolved is true, show all comments; when false, show only unresolved */}
+                  {commentsVisible && comments
+                    .filter((comment) => showResolved || !comment.resolved)
                     .map((comment) => (
                       <CommentPin
                         key={comment.id}
                         comment={comment}
                         isSelected={selectedPinId === comment.id}
                         isHighlighted={hoveredPinId === comment.id}
-                        isSidebarOpen={isSidebarOpen}
-                        currentContainerWidth={containerWidth}
+                                                currentAuthorName={authorName}
+                        onSetAuthorName={setAuthorName}
                         onSelect={setSelectedPinId}
                         onHover={setHoveredPinId}
                         onEdit={handleEditComment}
@@ -1354,7 +1954,6 @@ export default function Home() {
                         onResolve={handleResolveComment}
                         onReopen={handleReopenComment}
                         onMove={handleMoveComment}
-                        sidebarClickedRef={sidebarClickedRef}
                         containerRef={containerRef}
                       />
                     ))}
@@ -1362,39 +1961,126 @@ export default function Home() {
                   {/* New Comment Popup */}
                   {newCommentPos && (
                     <div
-                      className="pointer-events-auto absolute z-50"
+                      className={cn(
+                        "pointer-events-auto absolute z-50",
+                        newCommentPopupPosition.vertical === "top" && "origin-top-left",
+                        newCommentPopupPosition.vertical === "bottom" && "origin-bottom-left"
+                      )}
                       style={{
-                        left: `${newCommentPos.x}%`,
-                        top: `${newCommentPos.y}%`,
-                        transform: "translate(8px, -50%)",
+                        left: newCommentPopupPosition.horizontal === "right" ? `${newCommentPos.x}%` : undefined,
+                        right: newCommentPopupPosition.horizontal === "left" ? `${100 - newCommentPos.x}%` : undefined,
+                        top: newCommentPopupPosition.vertical !== "bottom" ? `${newCommentPos.y}%` : undefined,
+                        bottom: newCommentPopupPosition.vertical === "bottom" ? `${100 - newCommentPos.y}%` : undefined,
+                        transform: newCommentPopupPosition.horizontal === "right"
+                          ? (newCommentPopupPosition.vertical === "center" ? "translate(12px, -50%)" : "translateX(12px)")
+                          : (newCommentPopupPosition.vertical === "center" ? "translate(-12px, -50%)" : "translateX(-12px)"),
                       }}
                     >
-                      <div className="w-64 rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3 shadow-xl">
+                      <div className="w-70 max-w-[320px] rounded-xl border border-[#E5E7EB] bg-white p-3 shadow-lg" style={{ width: "280px" }}>
+                        {/* Inline name input - shown when no saved name exists */}
+                        {!authorName?.trim() && (
+                          <div className="mb-2">
+                            <input
+                              ref={inlineNameInputRef}
+                              type="text"
+                              value={pendingNameInput}
+                              onChange={(e) => setPendingNameInput(e.target.value)}
+                              className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                              placeholder="Your name"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && pendingNameInput.trim()) {
+                                  e.preventDefault();
+                                  newCommentInputRef.current?.focus();
+                                }
+                                if (e.key === "Escape") handleCancelNewComment();
+                              }}
+                            />
+                          </div>
+                        )}
                         <input
                           ref={newCommentInputRef}
                           value={newCommentText}
                           onChange={(e) => setNewCommentText(e.target.value)}
-                          className="w-full rounded-lg border-none bg-[#22222C] px-3 py-2 text-sm text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                          className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
                           placeholder="Add a comment..."
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handlePostComment();
+                            if (e.key === "Enter" && isNameValid && newCommentText.trim()) handlePostComment();
                             if (e.key === "Escape") handleCancelNewComment();
                           }}
                         />
                         <div className="mt-2 flex items-center justify-between">
-                          <span className="text-[11px] text-[#6B6B75]">
-                            Posting as {authorName}
-                          </span>
+                          {effectiveName ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[11px] text-[#9CA3AF]">
+                                Posting as {effectiveName}
+                              </span>
+                              <Popover open={isNameEditOpen} onOpenChange={setIsNameEditOpen}>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={handleOpenNameEdit}
+                                    className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                  className="w-60 p-3"
+                                  align="start"
+                                  side="top"
+                                  sideOffset={8}
+                                >
+                                  <input
+                                    ref={nameEditInputRef}
+                                    type="text"
+                                    value={nameEditInput}
+                                    onChange={(e) => setNameEditInput(e.target.value)}
+                                    className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                                    placeholder="Your name"
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && nameEditInput.trim()) {
+                                        e.preventDefault();
+                                        handleSaveNameEdit();
+                                      }
+                                      if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        handleCancelNameEdit();
+                                      }
+                                    }}
+                                  />
+                                  <div className="mt-2 flex justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={handleCancelNameEdit}
+                                      className="rounded-full bg-[#F3F4F6] px-3 py-1.5 text-xs font-medium text-[#1F2937] transition-all hover:bg-[#E5E7EB]"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleSaveNameEdit}
+                                      disabled={!nameEditInput.trim()}
+                                      className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
+                                    >
+                                      Save
+                                    </button>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-[#9CA3AF]" />
+                          )}
                           <div className="flex gap-2">
                             <button
                               onClick={handleCancelNewComment}
-                              className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
+                              className="rounded-full bg-[#F3F4F6] px-3 py-1.5 text-xs font-medium text-[#1F2937] transition-all hover:bg-[#E5E7EB]"
                             >
                               Cancel
                             </button>
                             <button
                               onClick={handlePostComment}
-                              disabled={!newCommentText.trim()}
+                              disabled={!newCommentText.trim() || !isNameValid}
                               className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
                             >
                               Post
@@ -1409,16 +2095,16 @@ export default function Home() {
 
               {/* Image Mode */}
               {viewMode === "image" && (
-                <div className="flex items-center justify-center bg-[#0A0A0F] p-8" style={{ minHeight: `calc(100vh - ${NAV_HEIGHT}px)` }}>
+                <div className="flex items-center justify-center bg-[#FAFAFA] p-8" style={{ minHeight: `calc(100vh - ${NAV_HEIGHT}px)` }}>
                   {isLoadingImage ? (
-                    <div className="text-[#6B6B75]">Loading image...</div>
+                    <div className="text-[#9CA3AF]">Loading image...</div>
                   ) : imageError ? (
                     <div className="text-center">
                       <div className="mb-4 text-4xl">🖼️</div>
-                      <h2 className="mb-2 text-xl font-semibold text-white">
+                      <h2 className="mb-2 text-xl font-semibold text-[#1F2937]">
                         {imageError}
                       </h2>
-                      <p className="mb-4 text-[#6B6B75]">
+                      <p className="mb-4 text-[#6B7280]">
                         This image may have been deleted or the link is invalid.
                       </p>
                       <button
@@ -1431,7 +2117,7 @@ export default function Home() {
                   ) : imageDoc ? (
                     <div
                       ref={imageContainerRef}
-                      className="relative overflow-hidden rounded-lg border border-[#1F1F26] shadow-2xl shadow-black/50"
+                      className="relative overflow-hidden rounded-lg border border-[#E5E7EB] shadow-lg"
                       style={{
                         maxWidth: "100%",
                         maxHeight: "calc(100vh - 120px)",
@@ -1452,7 +2138,7 @@ export default function Home() {
                       <div
                         className={cn(
                           "absolute inset-0",
-                          mode === "comment"
+                          mode === "comment" && commentsVisible
                             ? "cursor-crosshair pointer-events-auto"
                             : selectedPinId !== null
                               ? "pointer-events-auto"
@@ -1460,24 +2146,25 @@ export default function Home() {
                         )}
                         onClick={handleOverlayClick}
                         onMouseMove={(e) => {
-                          if (mode === "comment" && !newCommentPos) {
+                          if (mode === "comment" && commentsVisible && !newCommentPos) {
                             setCursorPos({ x: e.clientX, y: e.clientY });
                           }
                         }}
                         onMouseLeave={() => setCursorPos(null)}
                       />
 
-                      {/* Comment Pins - filtered by resolved state */}
-                      {comments
-                        .filter((comment) => comment.resolved === showResolved)
+                      {/* Comment Pins - filtered by resolved state and visibility */}
+                      {/* When showResolved is true, show all comments; when false, show only unresolved */}
+                      {commentsVisible && comments
+                        .filter((comment) => showResolved || !comment.resolved)
                         .map((comment) => (
                           <CommentPin
                             key={comment.id}
                             comment={comment}
                             isSelected={selectedPinId === comment.id}
                             isHighlighted={hoveredPinId === comment.id}
-                            isSidebarOpen={isSidebarOpen}
-                            currentContainerWidth={containerWidth}
+                                                        currentAuthorName={authorName}
+                            onSetAuthorName={setAuthorName}
                             onSelect={setSelectedPinId}
                             onHover={setHoveredPinId}
                             onEdit={handleEditComment}
@@ -1485,7 +2172,6 @@ export default function Home() {
                             onResolve={handleResolveComment}
                             onReopen={handleReopenComment}
                             onMove={handleMoveComment}
-                            sidebarClickedRef={sidebarClickedRef}
                             containerRef={imageContainerRef}
                           />
                         ))}
@@ -1493,39 +2179,126 @@ export default function Home() {
                       {/* New Comment Popup */}
                       {newCommentPos && (
                         <div
-                          className="pointer-events-auto absolute z-50"
+                          className={cn(
+                            "pointer-events-auto absolute z-50",
+                            newCommentPopupPosition.vertical === "top" && "origin-top-left",
+                            newCommentPopupPosition.vertical === "bottom" && "origin-bottom-left"
+                          )}
                           style={{
-                            left: `${newCommentPos.x}%`,
-                            top: `${newCommentPos.y}%`,
-                            transform: "translate(8px, -50%)",
+                            left: newCommentPopupPosition.horizontal === "right" ? `${newCommentPos.x}%` : undefined,
+                            right: newCommentPopupPosition.horizontal === "left" ? `${100 - newCommentPos.x}%` : undefined,
+                            top: newCommentPopupPosition.vertical !== "bottom" ? `${newCommentPos.y}%` : undefined,
+                            bottom: newCommentPopupPosition.vertical === "bottom" ? `${100 - newCommentPos.y}%` : undefined,
+                            transform: newCommentPopupPosition.horizontal === "right"
+                              ? (newCommentPopupPosition.vertical === "center" ? "translate(12px, -50%)" : "translateX(12px)")
+                              : (newCommentPopupPosition.vertical === "center" ? "translate(-12px, -50%)" : "translateX(-12px)"),
                           }}
                         >
-                          <div className="w-64 rounded-xl border border-[#1F1F26] bg-[#1A1A22] p-3 shadow-xl">
+                          <div className="w-70 max-w-[320px] rounded-xl border border-[#E5E7EB] bg-white p-3 shadow-lg" style={{ width: "280px" }}>
+                            {/* Inline name input - shown when no saved name exists */}
+                            {!authorName?.trim() && (
+                              <div className="mb-2">
+                                <input
+                                  ref={inlineNameInputRef}
+                                  type="text"
+                                  value={pendingNameInput}
+                                  onChange={(e) => setPendingNameInput(e.target.value)}
+                                  className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                                  placeholder="Your name"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && pendingNameInput.trim()) {
+                                      e.preventDefault();
+                                      newCommentInputRef.current?.focus();
+                                    }
+                                    if (e.key === "Escape") handleCancelNewComment();
+                                  }}
+                                />
+                              </div>
+                            )}
                             <input
                               ref={newCommentInputRef}
                               value={newCommentText}
                               onChange={(e) => setNewCommentText(e.target.value)}
-                              className="w-full rounded-lg border-none bg-[#22222C] px-3 py-2 text-sm text-white outline-none transition-all placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                              className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
                               placeholder="Add a comment..."
                               onKeyDown={(e) => {
-                                if (e.key === "Enter") handlePostComment();
+                                if (e.key === "Enter" && isNameValid && newCommentText.trim()) handlePostComment();
                                 if (e.key === "Escape") handleCancelNewComment();
                               }}
                             />
                             <div className="mt-2 flex items-center justify-between">
-                              <span className="text-[11px] text-[#6B6B75]">
-                                Posting as {authorName}
-                              </span>
+                              {effectiveName ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[11px] text-[#9CA3AF]">
+                                    Posting as {effectiveName}
+                                  </span>
+                                  <Popover open={isNameEditOpen} onOpenChange={setIsNameEditOpen}>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={handleOpenNameEdit}
+                                        className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      className="w-60 p-3"
+                                      align="start"
+                                      side="top"
+                                      sideOffset={8}
+                                    >
+                                      <input
+                                        ref={nameEditInputRef}
+                                        type="text"
+                                        value={nameEditInput}
+                                        onChange={(e) => setNameEditInput(e.target.value)}
+                                        className="w-full rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#1F2937] outline-none transition-all placeholder:text-[#9CA3AF] focus:ring-2 focus:ring-[#6E5BFF]/25"
+                                        placeholder="Your name"
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" && nameEditInput.trim()) {
+                                            e.preventDefault();
+                                            handleSaveNameEdit();
+                                          }
+                                          if (e.key === "Escape") {
+                                            e.preventDefault();
+                                            handleCancelNameEdit();
+                                          }
+                                        }}
+                                      />
+                                      <div className="mt-2 flex justify-end gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={handleCancelNameEdit}
+                                          className="rounded-full bg-[#F3F4F6] px-3 py-1.5 text-xs font-medium text-[#1F2937] transition-all hover:bg-[#E5E7EB]"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={handleSaveNameEdit}
+                                          disabled={!nameEditInput.trim()}
+                                          className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
+                                        >
+                                          Save
+                                        </button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-[#9CA3AF]" />
+                              )}
                               <div className="flex gap-2">
                                 <button
                                   onClick={handleCancelNewComment}
-                                  className="rounded-full bg-[#22222C] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#2A2A33]"
+                                  className="rounded-full bg-[#F3F4F6] px-3 py-1.5 text-xs font-medium text-[#1F2937] transition-all hover:bg-[#E5E7EB]"
                                 >
                                   Cancel
                                 </button>
                                 <button
                                   onClick={handlePostComment}
-                                  disabled={!newCommentText.trim()}
+                                  disabled={!newCommentText.trim() || !isNameValid}
                                   className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#8170FF] disabled:opacity-50"
                                 >
                                   Post
@@ -1541,64 +2314,65 @@ export default function Home() {
               )}
             </div>
 
-            {/* Cursor-following tooltip in comment mode */}
-            {mode === "comment" && !newCommentPos && cursorPos && (
-              !isNameValid ? (
-                <div
-                  className="pointer-events-none fixed z-[100]"
-                  style={{
-                    left: cursorPos.x + 16,
-                    top: cursorPos.y + 16,
-                  }}
-                >
-                  <div className="rounded-full bg-[#6E5BFF] px-3 py-1.5 text-xs font-medium text-white shadow-lg">
-                    Enter your name first
+            {/* Cursor-following avatar in comment mode */}
+            {mode === "comment" && commentsVisible && !newCommentPos && cursorPos && (
+              (() => {
+                // Viewport collision detection for comment pin cursor
+                const pinSize = 28;
+                const offset = 6;
+                const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1920;
+                const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 1080;
+
+                // Determine horizontal position
+                const spaceOnRight = viewportWidth - cursorPos.x - offset;
+                const positionLeft = spaceOnRight >= pinSize;
+                const left = positionLeft
+                  ? cursorPos.x + offset
+                  : cursorPos.x - offset - pinSize;
+
+                // Determine vertical position
+                const spaceBelow = viewportHeight - cursorPos.y - offset;
+                const positionBelow = spaceBelow >= pinSize;
+                const top = positionBelow
+                  ? cursorPos.y + offset
+                  : cursorPos.y - offset - pinSize;
+
+                // Anonymous state: gray circle with MessageCircle icon
+                // Named state: colored circle with initial
+                const isAnonymous = !authorName?.trim();
+
+                return (
+                  <div
+                    className="pointer-events-none fixed z-[100]"
+                    style={{
+                      left: Math.max(8, Math.min(left, viewportWidth - pinSize - 8)),
+                      top: Math.max(8, Math.min(top, viewportHeight - pinSize - 8)),
+                    }}
+                  >
+                    <div
+                      className="flex h-7 w-7 items-center justify-center rounded-full shadow-lg"
+                      style={{ backgroundColor: isAnonymous ? "#D4D4D4" : getAvatarColor(authorName) }}
+                    >
+                      {isAnonymous ? (
+                        <MessageCircle className="h-3.5 w-3.5" style={{ color: "#666" }} />
+                      ) : (
+                        <span className="text-[11px] font-semibold text-white">
+                          {authorName.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div
-                  className="pointer-events-none fixed z-[100]"
-                  style={{
-                    left: cursorPos.x + 6,
-                    top: cursorPos.y + 6,
-                  }}
-                >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#6E5BFF] shadow-lg">
-                    <MessageCircle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
-                  </div>
-                </div>
-              )
+                );
+              })()
             )}
 
-            {/* Comment mode hint overlay at bottom */}
-            {mode === "comment" && !newCommentPos && showCommentHint && (
-              <div
-                className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 cursor-pointer transition-opacity duration-300"
-                onClick={() => {
-                  setShowCommentHint(false);
-                  setHasSeenCommentHint(true);
-                }}
-              >
-                <div className="rounded-full border border-[#1F1F26] bg-[#1A1A22] px-4 py-2 shadow-lg">
-                  <p className="text-[13px] text-white">
-                    Click anywhere to place a comment{" "}
-                    <span className="text-[#6B6B75]">·</span>{" "}
-                    Press{" "}
-                    <kbd className="inline-flex items-center justify-center rounded bg-[#22222C] px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
-                      Esc
-                    </kbd>{" "}
-                    to cancel
-                  </p>
-                </div>
-              </div>
-            )}
 
             {/* Comments Sidebar */}
             <div
               ref={sidebarRef}
               data-sidebar
               className={cn(
-                "fixed right-0 bottom-0 flex flex-col border-l border-[#1F1F26] bg-[#0F0F15] transition-all duration-300 z-40",
+                "fixed right-0 bottom-0 flex flex-col border-l border-[#E5E7EB] bg-white transition-all duration-300 z-40",
                 isSidebarOpen ? "w-80" : "w-0"
               )}
               style={{ top: `${NAV_HEIGHT}px` }}
@@ -1615,26 +2389,23 @@ export default function Home() {
               {isSidebarOpen && (() => {
                 // Compute filtered comments based on showResolved toggle
                 const activeComments = comments.filter((c) => !c.resolved);
-                const resolvedComments = comments.filter((c) => c.resolved);
 
-                // Filter logic: show EITHER active OR resolved, never both
-                const filteredComments = showResolved ? resolvedComments : activeComments;
+                // Filter logic: show only active, or all (active + resolved)
+                const filteredComments = showResolved ? comments : activeComments;
 
                 // Header label and count
-                const headerLabel = showResolved ? "RESOLVED" : "COMMENTS";
+                const headerLabel = showResolved ? "ALL COMMENTS" : "COMMENTS";
                 const headerCount = filteredComments.length;
 
                 // Empty state logic
                 const showEmptyState = filteredComments.length === 0;
-                const emptyStateText = showResolved
-                  ? "No resolved comments yet."
-                  : "No comments yet. Press C to add one.";
+                const emptyStateText = "No comments yet. Press C to add one.";
 
                 return (
                   <>
                     {/* Header with close button */}
                     <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                      <h2 className="text-[11px] font-medium uppercase tracking-[1px] text-[#6B6B75]">
+                      <h2 className="text-[11px] font-medium uppercase tracking-[1px] text-[#9CA3AF]">
                         {headerLabel}{headerCount > 0 && ` · ${headerCount}`}
                       </h2>
                       <button
@@ -1643,7 +2414,7 @@ export default function Home() {
                           setSelectedPinId(null);
                           setNewCommentPos(null);
                         }}
-                        className="text-[#6B6B75] transition-colors hover:text-white"
+                        className="text-[#9CA3AF] transition-colors hover:text-[#1F2937]"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -1654,10 +2425,10 @@ export default function Home() {
                       <button
                         onClick={() => setShowResolved(!showResolved)}
                         className={cn(
-                          "rounded-full text-[12px] font-medium text-white transition-all duration-150",
+                          "rounded-full text-[12px] font-medium transition-all duration-150",
                           showResolved
-                            ? "border border-transparent bg-[#6E5BFF] px-3 py-[5px]"
-                            : "border border-[#2A2D38] bg-transparent px-3 py-[5px] hover:border-[#3A3D48]"
+                            ? "border border-transparent bg-[#6E5BFF] px-3 py-[5px] text-white"
+                            : "border border-[#E5E7EB] bg-transparent px-3 py-[5px] text-[#6B7280] hover:border-[#D1D5DB]"
                         )}
                       >
                         Resolved
@@ -1667,13 +2438,13 @@ export default function Home() {
                     <div className="flex-1 overflow-y-auto px-4 pb-4">
                       {isLoadingComments ? (
                         <div className="flex h-full items-center justify-center">
-                          <p className="text-center text-[13px] text-[#6B6B75]">
+                          <p className="text-center text-[13px] text-[#9CA3AF]">
                             Loading comments...
                           </p>
                         </div>
                       ) : showEmptyState ? (
                         <div className="flex h-full flex-col items-center justify-center py-10">
-                          <p className="text-center text-[13px] text-[#4A4A52]">
+                          <p className="text-center text-[13px] text-[#9CA3AF]">
                             {emptyStateText}
                           </p>
                         </div>
@@ -1695,14 +2466,14 @@ export default function Home() {
                                     onMouseEnter={() => setHoveredPinId(comment.id)}
                                     onMouseLeave={() => setHoveredPinId(null)}
                                     className={cn(
-                                      "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150 bg-[#1A1A22]",
+                                      "cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150 bg-[#F9FAFB]",
                                       isSelected ? "opacity-100" : isHovered ? "opacity-85" : "opacity-70"
                                     )}
                                   >
-                                    <p className="text-[13px] font-medium leading-relaxed text-[#6B6B75]">
+                                    <p className="text-[13px] font-medium leading-relaxed text-[#9CA3AF]">
                                       {comment.text}
                                     </p>
-                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6B6B75]">
+                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-[#9CA3AF]">
                                       <span>{comment.author}</span>
                                       <span>·</span>
                                       <span>{formatRelativeTime(comment.createdAt)}</span>
@@ -1723,19 +2494,19 @@ export default function Home() {
                                     isSelected
                                       ? "bg-[#6E5BFF]"
                                       : isHovered
-                                        ? "bg-[#22222C]"
-                                        : "bg-[#1A1A22] hover:bg-[#22222C]"
+                                        ? "bg-[#F3F4F6]"
+                                        : "bg-[#F9FAFB] hover:bg-[#F3F4F6]"
                                   )}
                                 >
                                   <p className={cn(
                                     "text-[13px] font-medium leading-relaxed",
-                                    isSelected ? "text-white" : "text-white"
+                                    isSelected ? "text-white" : "text-[#1F2937]"
                                   )}>
                                     {comment.text}
                                   </p>
                                   <div className={cn(
                                     "mt-1 flex items-center gap-2 text-[11px]",
-                                    isSelected ? "text-[#D6D0FF]" : "text-[#6B6B75]"
+                                    isSelected ? "text-[#D6D0FF]" : "text-[#9CA3AF]"
                                   )}>
                                     <span>{comment.author}</span>
                                     <span>·</span>
@@ -1753,39 +2524,143 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Floating Action Button */}
-          <button
-            type="button"
-            onClick={() => {
-              if (isSidebarOpen) {
-                setMode("browse");
-                setSelectedPinId(null);
-                setNewCommentPos(null);
-              } else {
-                setMode("comment");
-              }
+          {/* Old Floating Action Button (hidden) */}
+          {SHOW_FLOATING_COMMENTS_BUTTON && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isSidebarOpen) {
+                  setMode("browse");
+                  setSelectedPinId(null);
+                  setNewCommentPos(null);
+                } else {
+                  setMode("comment");
+                }
+              }}
+              className={cn(
+                "fixed bottom-6 right-6 z-50 flex h-13 w-13 items-center justify-center rounded-full transition-all duration-150 ease-out",
+                "bg-[#6E5BFF] text-white shadow-lg",
+                "hover:scale-105 hover:bg-[#8170FF]"
+              )}
+              style={{ width: "52px", height: "52px" }}
+            >
+              {isSidebarOpen ? (
+                <X className="h-[22px] w-[22px]" strokeWidth={2.5} />
+              ) : (
+                <MessageCircle className="h-[22px] w-[22px]" strokeWidth={2.5} />
+              )}
+              {/* Comment count badge - only show active comments count */}
+              {!isSidebarOpen && comments.filter((c) => !c.resolved).length > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#EF4444] px-1 text-[11px] font-medium text-white">
+                  {comments.filter((c) => !c.resolved).length}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Floating Comment Controls - Vertical Pill */}
+          <div
+            className="fixed right-3 top-1/2 -translate-y-1/2 z-50 flex flex-col items-center"
+            style={{
+              backgroundColor: "#1F2937",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              borderRadius: "16px",
+              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.12)",
+              padding: "3px",
             }}
-            className={cn(
-              "fixed bottom-6 right-6 z-50 flex h-13 w-13 items-center justify-center rounded-full transition-all duration-150 ease-out",
-              "bg-[#6E5BFF] text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)]",
-              "hover:scale-105 hover:bg-[#8170FF]"
-            )}
-            style={{ width: "52px", height: "52px" }}
           >
-            {isSidebarOpen ? (
-              <X className="h-[22px] w-[22px]" strokeWidth={2.5} />
-            ) : (
-              <MessageCircle className="h-[22px] w-[22px]" strokeWidth={2.5} />
-            )}
-            {/* Comment count badge - only show active comments count */}
-            {!isSidebarOpen && comments.filter((c) => !c.resolved).length > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-1 text-[11px] font-medium text-[#0A0A0F]">
-                {comments.filter((c) => !c.resolved).length}
-              </span>
-            )}
-          </button>
+            {/* Top Button - Toggle Comments Visibility */}
+            <div className="relative group/visibility">
+              {/* Tooltip */}
+              <div
+                className={cn(
+                  "absolute right-full top-1/2 -translate-y-1/2 mr-2",
+                  "flex items-center gap-1.5 rounded-full bg-[#1F2937] px-2 py-1",
+                  "opacity-0 translate-x-2 pointer-events-none",
+                  "group-hover/visibility:opacity-100 group-hover/visibility:translate-x-0",
+                  "transition-all duration-150 ease-out whitespace-nowrap"
+                )}
+                style={{
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                }}
+              >
+                <span className="text-[11px] font-medium text-white">
+                  {commentsVisible ? "Hide comments" : "Show comments"}
+                </span>
+                <kbd className="flex h-3.5 min-w-3.5 items-center justify-center rounded bg-white/20 px-0.5 text-[9px] font-medium text-white/90">
+                  H
+                </kbd>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommentsVisible((prev) => !prev)}
+                className={cn(
+                  "flex items-center justify-center rounded-full transition-all duration-150",
+                  commentsVisible ? "text-white" : "text-white/40"
+                )}
+                style={{
+                  width: "26px",
+                  height: "26px",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                }}
+              >
+                {commentsVisible ? (
+                  <Eye className="h-3.5 w-3.5" strokeWidth={2} />
+                ) : (
+                  <EyeOff className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+              </button>
+            </div>
+
+            {/* Bottom Button - Toggle Resolved Comments */}
+            <div className="relative group/resolved">
+              {/* Tooltip */}
+              <div
+                className={cn(
+                  "absolute right-full top-1/2 -translate-y-1/2 mr-2",
+                  "flex items-center gap-1.5 rounded-full bg-[#1F2937] px-2 py-1",
+                  "opacity-0 translate-x-2 pointer-events-none",
+                  "group-hover/resolved:opacity-100 group-hover/resolved:translate-x-0",
+                  "transition-all duration-150 ease-out whitespace-nowrap"
+                )}
+                style={{
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                }}
+              >
+                <span className="text-[11px] font-medium text-white">
+                  {showResolved ? "Hide resolved" : "Show resolved"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResolved((prev) => !prev)}
+                className={cn(
+                  "relative flex items-center justify-center rounded-full transition-all duration-150",
+                  showResolved ? "text-white" : "text-white/40"
+                )}
+                style={{
+                  width: "26px",
+                  height: "26px",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            </div>
+          </div>
         </>
       )}
+
     </div>
   );
 }

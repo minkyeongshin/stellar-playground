@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from "react";
 
 // Exact pixel dimensions - measured from landing page nav
 // These are the TARGET values that must be identical across all pages
@@ -8,6 +8,9 @@ export const NAV_HEIGHT = 52; // Total nav height including border
 export const NAV_PADDING_X = 16; // px-4 = 16px
 export const PILL_HEIGHT = 28; // URL pill and name input height
 export const LOGO_HEIGHT = 26; // Stellar logo height
+
+// localStorage key for user name persistence
+const STORAGE_KEY = "stellar-quick-comments:userName";
 
 type ViewMode = "landing" | "url" | "image";
 
@@ -59,6 +62,34 @@ export function NavProvider({ children }: { children: ReactNode }) {
   const [isUrlFocused, setIsUrlFocused] = useState(false);
   const [imageFileName, setImageFileName] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState("");
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Read authorName from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        setAuthorName(stored);
+      }
+    } catch {
+      // localStorage not available (SSR, private browsing, etc.)
+    }
+    setIsHydrated(true);
+  }, []);
+
+  // Write authorName to localStorage when it changes
+  useEffect(() => {
+    if (!isHydrated) return;
+    try {
+      if (authorName) {
+        localStorage.setItem(STORAGE_KEY, authorName);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      // localStorage not available
+    }
+  }, [authorName, isHydrated]);
 
   // Refs for inputs
   const landingUrlInputRef = useRef<HTMLInputElement | null>(null);

@@ -17,11 +17,8 @@ export function TopNav() {
     isUrlFocused,
     setIsUrlFocused,
     imageFileName,
-    authorName,
-    setAuthorName,
     landingUrlInputRef,
     urlInputRef,
-    nameInputRef,
     onLandingUrlKeyDown,
     onUrlKeyDown,
     onUrlBlur,
@@ -32,7 +29,7 @@ export function TopNav() {
 
   return (
     <header
-      className="sticky top-0 z-50 flex items-center gap-4 border-b border-[#1F1F26] bg-[#0A0A0F]"
+      className="sticky top-0 z-50 flex items-center gap-4 border-b border-[#E5E7EB] bg-white"
       style={{
         height: `${NAV_HEIGHT}px`,
         minHeight: `${NAV_HEIGHT}px`,
@@ -56,12 +53,12 @@ export function TopNav() {
           alt="Stellar"
           width={100}
           height={26}
-          className="w-auto invert brightness-0"
+          className="w-auto"
           style={{ height: "26px" }}
           priority
         />
         <span
-          className="rounded-full bg-[#1A1A22] text-[11px] font-medium text-white"
+          className="rounded-full bg-[#F3F4F6] text-[11px] font-medium text-[#6B7280]"
           style={{ padding: "4px 10px", lineHeight: "1" }}
         >
           Quick
@@ -70,10 +67,10 @@ export function TopNav() {
 
       {/* Viewing: URL Input section */}
       <div className="flex items-center gap-2 shrink-0" style={{ height: `${PILL_HEIGHT}px` }}>
-        <span className="mr-1 text-[13px] text-[#6B6B75]" style={{ lineHeight: "1" }}>Viewing:</span>
+        <span className="mr-1 text-[13px] text-[#9CA3AF]" style={{ lineHeight: "1" }}>Viewing:</span>
         {/* URL pill - EXACT same height in all states */}
         <div
-          className="flex items-center rounded-full bg-[#1A1A22]"
+          className="flex items-center rounded-full bg-[#F3F4F6]"
           style={{
             height: `${PILL_HEIGHT}px`,
             paddingLeft: "12px",
@@ -90,7 +87,7 @@ export function TopNav() {
                 value={landingUrlInput}
                 onChange={(e) => setLandingUrlInput(e.target.value)}
                 onKeyDown={onLandingUrlKeyDown}
-                className="bg-transparent text-[13px] text-white outline-none placeholder:text-[#6B6B75]"
+                className="bg-transparent text-[13px] text-[#1F2937] outline-none placeholder:text-[#9CA3AF]"
                 style={{ width: "200px", height: "18px", lineHeight: "18px" }}
                 placeholder="Enter any demo URL"
               />
@@ -109,7 +106,7 @@ export function TopNav() {
                 onFocus={() => setIsUrlFocused(true)}
                 onBlur={onUrlBlur}
                 className={cn(
-                  "bg-transparent text-[13px] text-white outline-none placeholder:text-[#6B6B75]",
+                  "bg-transparent text-[13px] text-[#1F2937] outline-none placeholder:text-[#9CA3AF]",
                   isUrlFocused && "ring-0"
                 )}
                 style={{ width: "200px", height: "18px", lineHeight: "18px" }}
@@ -122,7 +119,7 @@ export function TopNav() {
                     e.preventDefault();
                     onGoToLanding();
                   }}
-                  className="flex items-center justify-center shrink-0 rounded-full text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                  className="flex items-center justify-center shrink-0 rounded-full text-[#9CA3AF] transition-colors hover:bg-[#E5E7EB] hover:text-[#1F2937]"
                   style={{ width: "20px", height: "20px" }}
                 >
                   <X style={{ width: "12px", height: "12px" }} />
@@ -134,9 +131,9 @@ export function TopNav() {
           ) : viewMode === "image" && imageFileName ? (
             // Image viewing mode
             <>
-              <ImageIcon style={{ width: "14px", height: "14px" }} className="text-[#6B6B75] shrink-0" />
+              <ImageIcon style={{ width: "14px", height: "14px" }} className="text-[#9CA3AF] shrink-0" />
               <span
-                className="text-[13px] text-white truncate"
+                className="text-[13px] text-[#1F2937] truncate"
                 style={{ maxWidth: "180px", height: "18px", lineHeight: "18px" }}
               >
                 {imageFileName}
@@ -144,7 +141,7 @@ export function TopNav() {
               <button
                 type="button"
                 onClick={onGoToLanding}
-                className="flex items-center justify-center shrink-0 rounded-full text-[#6B6B75] transition-colors hover:bg-[#22222C] hover:text-white"
+                className="flex items-center justify-center shrink-0 rounded-full text-[#9CA3AF] transition-colors hover:bg-[#E5E7EB] hover:text-[#1F2937]"
                 style={{ width: "20px", height: "20px" }}
               >
                 <X style={{ width: "12px", height: "12px" }} />
@@ -154,7 +151,7 @@ export function TopNav() {
             // Loading state
             <>
               <span
-                className="text-[13px] text-[#6B6B75]"
+                className="text-[13px] text-[#9CA3AF]"
                 style={{ height: "18px", lineHeight: "18px" }}
               >
                 Loading...
@@ -167,26 +164,6 @@ export function TopNav() {
 
       {/* Spacer */}
       <div className="flex-1" />
-
-      {/* Comment as [name input] */}
-      <div className="flex items-center gap-2 text-[13px] text-[#6B6B75] shrink-0" style={{ height: `${PILL_HEIGHT}px` }}>
-        <span style={{ lineHeight: "1" }}>Comment as</span>
-        <input
-          ref={isLanding ? undefined : nameInputRef}
-          type="text"
-          value={authorName}
-          onChange={(e) => setAuthorName(e.target.value)}
-          className="rounded-full border-none bg-[#1A1A22] text-[13px] text-white outline-none placeholder:text-[#6B6B75] focus:ring-2 focus:ring-[#6E5BFF]/25"
-          style={{
-            width: "128px",
-            height: `${PILL_HEIGHT}px`,
-            paddingLeft: "12px",
-            paddingRight: "12px",
-            lineHeight: `${PILL_HEIGHT}px`,
-          }}
-          placeholder="Your name"
-        />
-      </div>
     </header>
   );
 }

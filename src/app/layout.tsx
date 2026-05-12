@@ -23,9 +23,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} h-full antialiased dark`}
+      className={`${inter.variable} h-full antialiased`}
     >
-      <body className="h-full bg-[#0A0A0F] text-white">
+      <body className="h-full bg-[#FAFAFA] text-[#1F2937] overflow-x-hidden">
         <TooltipProvider>
           <NavWrapper>
             {children}
