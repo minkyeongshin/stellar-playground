@@ -1056,14 +1056,11 @@ function CommentPin({
                           Posting as {effectiveReplyName}
                         </span>
                         <Popover open={isReplyNameEditOpen} onOpenChange={setIsReplyNameEditOpen}>
-                          <PopoverTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={handleOpenReplyNameEdit}
-                              className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
+                          <PopoverTrigger
+                            onClick={handleOpenReplyNameEdit}
+                            className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                          >
+                            <Pencil className="h-3 w-3" />
                           </PopoverTrigger>
                           <PopoverContent
                             className="w-60 p-3"
@@ -2015,14 +2012,11 @@ export default function Home() {
                                 Posting as {effectiveName}
                               </span>
                               <Popover open={isNameEditOpen} onOpenChange={setIsNameEditOpen}>
-                                <PopoverTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={handleOpenNameEdit}
-                                    className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </button>
+                                <PopoverTrigger
+                                  onClick={handleOpenNameEdit}
+                                  className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                                >
+                                  <Pencil className="h-3 w-3" />
                                 </PopoverTrigger>
                                 <PopoverContent
                                   className="w-60 p-3"
@@ -2233,14 +2227,11 @@ export default function Home() {
                                     Posting as {effectiveName}
                                   </span>
                                   <Popover open={isNameEditOpen} onOpenChange={setIsNameEditOpen}>
-                                    <PopoverTrigger asChild>
-                                      <button
-                                        type="button"
-                                        onClick={handleOpenNameEdit}
-                                        className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
-                                      >
-                                        <Pencil className="h-3 w-3" />
-                                      </button>
+                                    <PopoverTrigger
+                                      onClick={handleOpenNameEdit}
+                                      className="p-0.5 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                                    >
+                                      <Pencil className="h-3 w-3" />
                                     </PopoverTrigger>
                                     <PopoverContent
                                       className="w-60 p-3"
